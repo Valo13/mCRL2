@@ -5,6 +5,7 @@ set(MCRL2_TOOLS
   lpsrealelm
   lpsstategraph
   lpssymbolicbisim
+  ltscompare2mcf
   pbesabsinthe
   pbespareqelm
   pbespor
