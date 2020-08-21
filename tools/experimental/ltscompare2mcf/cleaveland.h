@@ -13,6 +13,7 @@
 #include "mcrl2/lts/detail/liblts_merge.h"
 #include "mcrl2/modal_formula/action_formula.h"
 #include "mcrl2/modal_formula/state_formula.h"
+#include "mcrl2/modal_formula/traverser.h"
 #include "mcrl2/modal_formula/regular_formula.h"
 #include "mcrl2/process/untyped_multi_action.h"
 
@@ -39,15 +40,47 @@ template <class LTS_TYPE> class Cleaveland
 
   private:
   State init1, init2;
-  std::map<State, std::map<Action, std::set<State>>> nextStates;
+  Block allStates;
+  std::map<State, std::map<Action, std::set<State>>> nextStatesMap;
+
+  /* Holds the formulas assigned to blocks for the straightforward approach */
   std::map<Block, state_formula> blockFormulas;
+
+  /* Describes a partitioning tree of blocks for the non-straightforward
+   *   approach. When a block B is split in B1 and B2 using action a and block
+   *   B', B1 (can do a into B') becomes the left child, B2 (cannot do a into
+   *   B') the right child and the plit is labelled with a and B' */
+  std::map<Block, Block> leftChild;
+  std::map<Block, Block> rightChild;
+  std::map<Block, Action> splitByAction;
+  std::map<Block, Block> splitByBlock;
+
+  /* traverser for a notion of the size of a state formula */
+  struct size_traverser : public state_formula_traverser<size_traverser>
+  {
+    typedef state_formula_traverser<size_traverser> super;
+    using super::apply;
+    using super::enter;
+    using super::leave;
+
+    std::size_t result;
+
+    size_traverser() : result(0)
+    {
+    }
+
+    void enter(const state_formula&)
+    {
+      result++;
+    }
+  };
 
 #ifndef NDEBUG
   /**
    * @brief blockToString Creates a string representation of a block for
    *   debugging purposes
    * @param b The block for which to create a string representation
-   * @return
+   * @return The string representation of the given block
    */
   std::string blockToString(Block b)
   {
@@ -67,17 +100,17 @@ template <class LTS_TYPE> class Cleaveland
 #endif // !NDEBUG
 
   /**
-   * @brief nextState Returns the set of reachable states given a source state
+   * @brief nextStates Returns the set of reachable states given a source state
    *   and an action
    * @param s A source state
    * @param a An action
    * @return The set of reachable states
    */
-  std::set<State> nextState(State s, Action a)
+  std::set<State> nextStates(State s, Action a)
   {
-    if (nextStates.count(s) > 0 && nextStates[s].count(a) > 0)
+    if (nextStatesMap.count(s) > 0 && nextStatesMap[s].count(a) > 0)
     {
-      return nextStates[s][a];
+      return nextStatesMap[s][a];
     }
     else
     {
@@ -98,7 +131,7 @@ template <class LTS_TYPE> class Cleaveland
   {
     for (State sp : B)
     {
-      if (nextState(s, a).count(sp) > 0)
+      if (nextStates(s, a).count(sp) > 0)
       {
         return true;
       }
@@ -130,6 +163,113 @@ template <class LTS_TYPE> class Cleaveland
     return regular_formulas::regular_formula(
         action_formulas::multi_action(process::action_list(
             {process::action(process::action_label(a, {}), {})})));
+  }
+
+  /**
+   * @brief Create a state formula that distinguishes two given states for the
+   *   non-straightforward approach. The pseudocode is as follows:
+   *   delta(s1, s2)
+   *     DB := deepest block in block tree that contains s1 and s2
+   *     sL := s1 if s1 in the left child, else s2
+   *     sR := s1 if s1 in the right child, else s2
+   *     a := action used to split DB
+   *     B' := block used to split DB
+   *     size := \infty
+   *     SL := \{s' | sL -a-> s'\} \cap B'
+   *     SR := \{s' | sR -a-> s'\}
+   *     sPhi := false;
+   *     for sLp in SL
+   *       Gamma := \emptyset
+   *       for sRp \in SR
+   *         Gamma := Gamma \cup \{delta(sLp, sRp)\}
+   *       Phi = \bigwedge Gamma
+   *       if |Phi| < size
+   *         size := |Phi|
+   *         sPhi := Phi
+   *     if sL = s1
+   *       return <a>sPhi
+   *     else
+   *       return -<a>sPhi
+   * @param s1 The first of two states to distinguish
+   * @param s2 The second of two states to distinguish
+   * @return A state formula that is true on s1 but false on s2
+   */
+  state_formula delta(State s1, State s2)
+  {
+    // find the deepest block that contains s1 and s2
+    Block DB = allStates;
+    State sL, sR;
+    while (true)
+    {
+      Block left = leftChild.at(DB);
+      if (left.count(s1) > 0)
+      {
+        if (left.count(s2) > 0)
+        {
+          DB = left;
+        }
+        else
+        {
+          sL = s1;
+          sR = s2;
+          break;
+        }
+      }
+      else
+      {
+        if (left.count(s2) > 0)
+        {
+          sL = s2;
+          sR = s1;
+          break;
+        }
+        else
+        {
+          DB = rightChild.at(DB);
+        }
+      }
+    }
+
+    Action a = splitByAction.at(DB);
+    Block Bp = splitByBlock.at(DB);
+
+    size_t smallestSize = SIZE_MAX;
+    state_formula smallestPhi;
+    Block SL = utilities::detail::set_intersection(nextStates(sL, a), Bp);
+    Block SR = nextStates(sR, a);
+
+    // create the smallest formula
+    for (State sLp : SL)
+    {
+      // create a conjunction of subformulas
+      std::set<state_formula> Gamma;
+      for (State sRp : SR)
+      {
+        Gamma.insert(delta(sLp, sRp));
+      }
+      state_formula Phi = utilities::detail::join<state_formula>(
+          Gamma.begin(), Gamma.end(),
+          [](state_formula a, state_formula b) { return and_(a, b); }, true_());
+      // if it is smaller than the up to now smallest found Phi, replace it
+      size_traverser t;
+      t.apply(Phi);
+      size_t PhiSize = t.result;
+      if (PhiSize < smallestSize)
+      {
+        smallestSize = PhiSize;
+        smallestPhi = Phi;
+      }
+    }
+
+    state_formula dPhi = may(createRegularFormula(a), smallestPhi);
+    if (sL == s1)
+    {
+      return dPhi;
+    }
+    else
+    {
+      return not_(dPhi);
+    }
   }
 
   /**
@@ -205,28 +345,27 @@ template <class LTS_TYPE> class Cleaveland
     // First put all transitions in a map for easier access
     for (transition& t : l1.get_transitions())
     {
-      if (nextStates.count(t.from()) == 0)
+      if (nextStatesMap.count(t.from()) == 0)
       {
-        nextStates[t.from()] = std::map<Action, std::set<State>>();
+        nextStatesMap[t.from()] = std::map<Action, std::set<State>>();
       }
-      if (nextStates[t.from()].count(l1.action_label(t.label())) == 0)
+      if (nextStatesMap[t.from()].count(l1.action_label(t.label())) == 0)
       {
-        nextStates[t.from()][l1.action_label(t.label())] = {};
+        nextStatesMap[t.from()][l1.action_label(t.label())] = {};
       }
-      nextStates[t.from()][l1.action_label(t.label())].insert(t.to());
+      nextStatesMap[t.from()][l1.action_label(t.label())].insert(t.to());
     }
 
     /* Create the partitioning */
-    Block S;
     for (size_t s = 0; s < l1.num_states(); s++)
     {
-      S.insert(s);
+      allStates.insert(s);
     }
-    blockFormulas[S] = true_();
+    blockFormulas[allStates] = true_();
 
     // we'll use 2 partitions: one to refine (Pr) and one to iterate over (Pi)
     Partition Pr, Pi = {};
-    Pr.insert(S);
+    Pr.insert(allStates);
     bool changed = true;
 
     while (changed)
@@ -252,20 +391,24 @@ template <class LTS_TYPE> class Cleaveland
               Pr.erase(B);
               Pr.insert(B1);
               Pr.insert(B2);
-              // assign distinguishing formulas
+
+#ifndef NDEBUG
+              std::cout << "Split block B = " << blockToString(B)
+                        << " into blocks B1 = " << blockToString(B1)
+                        << " and B2 = " << blockToString(B2) << " over action "
+                        << pp(a) << " using block B' = " << blockToString(Bp)
+                        << "\n";
+#endif // !NDEBUG
+
               if (straightforward)
               {
+                // assign distinguishing formulas
                 state_formula diamond =
                     may(createRegularFormula(a), blockFormulas.at(Bp));
                 blockFormulas[B1] = and_(blockFormulas.at(B), diamond);
                 blockFormulas[B2] = and_(blockFormulas.at(B), not_(diamond));
 
 #ifndef NDEBUG
-                std::cout << "Split block B = " << blockToString(B)
-                          << " into blocks B1 = " << blockToString(B1)
-                          << " and B2 = " << blockToString(B2)
-                          << " over action " << pp(a)
-                          << " using block B' = " << blockToString(Bp) << "\n";
                 std::cout << "Block B1 = " << blockToString(B1)
                           << " got formula " << pp(blockFormulas.at(B1))
                           << "\n";
@@ -273,6 +416,14 @@ template <class LTS_TYPE> class Cleaveland
                           << " got formula " << pp(blockFormulas.at(B2))
                           << "\n";
 #endif // !NDEBUG
+              }
+              else
+              {
+                // add children to the block tree
+                leftChild[B] = B1;
+                rightChild[B] = B2;
+                splitByAction[B] = a;
+                splitByBlock[B] = Bp;
               }
               break;
             }
@@ -316,7 +467,7 @@ template <class LTS_TYPE> class Cleaveland
         }
         else
         {
-          return false_();
+          return delta(init1, init2);
         }
       }
     }
