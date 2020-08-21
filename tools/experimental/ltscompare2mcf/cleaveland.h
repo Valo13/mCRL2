@@ -20,11 +20,9 @@ namespace mcrl2::cleaveland
 {
 
 /**
- * Implements the Kanellakis-Smolka algorithm based on
- * https://www.ru.is/faculty/luca/PAPERS/algobisimchapter.pdf that returns a
- * mu-calculus formula according to the first method described in "On
- * Automatically Explaining Bisimulation inequivalence" from 1990 by Rance
- * Cleaveland
+ * Implements the Kanellakis-Smolka algorithm based that returns a mu-calculus
+ *   formula according to "On Automatically Explaining Bisimulation
+ *   inequivalence" from 1990 by Rance Cleaveland
  */
 template <class LTS_TYPE> class Cleaveland
 {
@@ -83,57 +81,33 @@ template <class LTS_TYPE> class Cleaveland
    *   reach exactly the same blocks when following a given action, and one
    *   with states that can't. Which blocks can be reached depends on the
    *   state initially picked. The pseudocode is as follows:
-   *     split(B, a, P)
-   *     pick s \in B
-   *     P' := {B' \in P | exists s' \in B' : s -a-> s'}
-   *     B1, B2 := {}
-   *     for t \in B
-   *       if {B' \in P | exists t' \in B' : t -a-> t'} == P' then
+   *   split(B, a, Bp)
+   *     for s \in B
+   *       if exists s' \in B' : s -a-> s' then
    *         B1 := B1 U {t}
    *       else
    *         B2 := B2 U {t}
-   *       endif
-   *     endfor
    *     return B1, B2
    * @param B A block to split
    * @param a The action to split over
-   * @param P2 The block to split against
+   * @param Bp The block to split against
    * @returns A pair of blocks, one with states that can reach the same
    * blocks when following a given action, and one with states that can't.
    */
-  std::pair<Block, Block> split(Block B, Action a, Partition P)
+  std::pair<Block, Block> split(Block B, Action a, Block Bp)
   {
     Block B1, B2 = {};
 
-    // pick a state
-    State s = *B.cbegin();
-
-    // compute the set of blocks it can move into via an a action
-    Partition Pp = {};
-    for (Block Bp : P)
+    // collect all states that can move into exactly the same blocks
+    for (State s : B)
     {
       if (canMoveIntoBlock(s, a, Bp))
       {
-        Pp.insert(Bp);
+        B1.insert(s);
       }
-    }
-
-    // collect all states that can move into exactly the same blocks
-    for (State t : B)
-    {
-      bool handled = false;
-      for (Block Bp : P)
+      else
       {
-        if (canMoveIntoBlock(t, a, Bp) != (Pp.count(Bp) == 1))
-        {
-          B2.insert(t);
-          handled = true;
-          break;
-        }
-      }
-      if (!handled)
-      {
-        B1.insert(t);
+        B2.insert(s);
       }
     }
 
@@ -154,11 +128,12 @@ template <class LTS_TYPE> class Cleaveland
    *       changed := false
    *       for B \in P
    *         for a \in L
-   *           B1, B2 := split(B, a, P)
-   *           if B1 != {} && B2 != {}
-   *             changed := true
-   *             replace B in P by B1 and B2
-   *             move to next block
+   *           for Bp \in P
+   *             B1, B2 := split(B, a, Bp)
+   *             if B1 != {} && B2 != {}
+   *               changed := true
+   *               replace B in P by B1 and B2
+   *               move to next block to split
    * @param l1 The first LTS to comapre with
    * @param l2 The second LTS to compare with
    * @returns A mu-calculus formula that is true on one LTS and false on the
@@ -202,17 +177,27 @@ template <class LTS_TYPE> class Cleaveland
       changed = false;
       for (Block B : Pi)
       {
+        bool split = false;
         for (Action a : l1.action_labels())
         {
-          std::pair<Block, Block> B1B2 = split(B, a, Pr);
-          // if the block was actually split, also split it in Pr and move to
-          //   the next block in Pi
-          if (!(B1B2.first.empty() || B1B2.second.empty()))
+          for (Block Bp : Pr)
           {
-            changed = true;
-            Pr.erase(B);
-            Pr.insert(B1B2.first);
-            Pr.insert(B1B2.second);
+            std::pair<Block, Block> B1B2 = this->split(B, a, Bp);
+            // if the block was actually split, also split it in Pr and move to
+            //   the next block in Pi
+            if (!(B1B2.first.empty() || B1B2.second.empty()))
+            {
+              changed = true;
+              split = true;
+              Pr.erase(B);
+              Pr.insert(B1B2.first);
+              Pr.insert(B1B2.second);
+              break;
+            }
+          }
+
+          if (split)
+          {
             break;
           }
         }
