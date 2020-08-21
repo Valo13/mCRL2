@@ -50,8 +50,15 @@ class ltscompare2mcf_tool : public ltscompare2mcf_base
 
   void parse_options(const command_line_parser& parser) override
   {
-    lts1_name = parser.arguments[0];
-    lts2_name = parser.arguments[1];
+    if (parser.arguments.size() > 1)
+    {
+      lts1_name = parser.arguments[0];
+      lts2_name = parser.arguments[1];
+    }
+    else
+    {
+      parser.error("No input files found");
+    }
   }
 
   public:
