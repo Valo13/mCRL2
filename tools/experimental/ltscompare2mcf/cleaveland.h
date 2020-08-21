@@ -70,7 +70,7 @@ template <class LTS_TYPE> class Cleaveland
   {
     for (State sp : B)
     {
-      if (nextState(s, a).count(sp) == 1)
+      if (nextState(s, a).count(sp) > 0)
       {
         return true;
       }
@@ -82,12 +82,13 @@ template <class LTS_TYPE> class Cleaveland
    * @brief split Splits a block into two blocks, one with states that can
    *   reach exactly the same blocks when following a given action, and one
    *   with states that can't. Which blocks can be reached depends on the
-   *   state initially picked. The pseudocode is as follows: split(B, a, P2)
+   *   state initially picked. The pseudocode is as follows:
+   *     split(B, a, P)
    *     pick s \in B
-   *     P2' := {B' \in P2 | exists s' \in B' : s -a-> s'}
+   *     P' := {B' \in P | exists s' \in B' : s -a-> s'}
    *     B1, B2 := {}
    *     for t \in B
-   *       if {B' \in P2 | exists t' \in B' : t -a-> t'} == P2 then
+   *       if {B' \in P | exists t' \in B' : t -a-> t'} == P' then
    *         B1 := B1 U {t}
    *       else
    *         B2 := B2 U {t}
@@ -100,7 +101,7 @@ template <class LTS_TYPE> class Cleaveland
    * @returns A pair of blocks, one with states that can reach the same
    * blocks when following a given action, and one with states that can't.
    */
-  std::pair<Block, Block> split(Block B, Action a, Partition P2)
+  std::pair<Block, Block> split(Block B, Action a, Partition P)
   {
     Block B1, B2 = {};
 
@@ -108,12 +109,12 @@ template <class LTS_TYPE> class Cleaveland
     State s = *B.cbegin();
 
     // compute the set of blocks it can move into via an a action
-    Partition P2p = {};
-    for (Block Bp : P2)
+    Partition Pp = {};
+    for (Block Bp : P)
     {
       if (canMoveIntoBlock(s, a, Bp))
       {
-        P2p.insert(Bp);
+        Pp.insert(Bp);
       }
     }
 
@@ -121,9 +122,9 @@ template <class LTS_TYPE> class Cleaveland
     for (State t : B)
     {
       bool handled = false;
-      for (Block Bp : P2)
+      for (Block Bp : P)
       {
-        if (canMoveIntoBlock(t, a, Bp) != (P2p.count(Bp) == 1))
+        if (canMoveIntoBlock(t, a, Bp) != (Pp.count(Bp) == 1))
         {
           B2.insert(t);
           handled = true;
@@ -146,19 +147,18 @@ template <class LTS_TYPE> class Cleaveland
    *   formula that is true on one LTS and false on the other. The pseudo code
    *   is as follows:
    *   bisim(l1, l2)
-   *     P1 := {S1 U S2}
-   *     P2 := {}
+   *     P := {S1 U S2}
    *     changed := true
    *     while changed
    *       P2 := P1
-   *       P1 := {}
    *       changed := false
-   *       for B \in P2
+   *       for B \in P
    *         for a \in L
-   *           B1, B2 := split(B, a, P2)
+   *           B1, B2 := split(B, a, P)
    *           if B1 != {} && B2 != {}
    *             changed := true
-   *           P1 := P1 U {B1, B2}-{{}}
+   *             replace B in P by B1 and B2
+   *             move to next block
    * @param l1 The first LTS to comapre with
    * @param l2 The second LTS to compare with
    * @returns A mu-calculus formula that is true on one LTS and false on the
@@ -182,10 +182,7 @@ template <class LTS_TYPE> class Cleaveland
       {
         nextStates[t.from()][l1.action_label(t.label())] = {};
       }
-      else
-      {
-        nextStates[t.from()][l1.action_label(t.label())].insert(t.to());
-      }
+      nextStates[t.from()][l1.action_label(t.label())].insert(t.to());
     }
 
     /* Create the partitioning */
@@ -194,32 +191,29 @@ template <class LTS_TYPE> class Cleaveland
     {
       S.insert(s);
     }
-    Partition P1, P2 = {};
-    P1.insert(S);
+    // we'll use 2 partitions: one to refine (Pr) and one to iterate over (Pi)
+    Partition Pr, Pi = {};
+    Pr.insert(S);
     bool changed = true;
+
     while (changed)
     {
-      P2 = P1;
-      P1 = {};
+      Pi = Pr;
       changed = false;
-      for (Block B : P2)
+      for (Block B : Pi)
       {
         for (Action a : l1.action_labels())
         {
-          std::pair<Block, Block> B1B2 = split(B, a, P2);
-          // check if the block was actually split
+          std::pair<Block, Block> B1B2 = split(B, a, Pr);
+          // if the block was actually split, also split it in Pr and move to
+          //   the next block in Pi
           if (!(B1B2.first.empty() || B1B2.second.empty()))
           {
             changed = true;
-          }
-          // add the new blocks to P1
-          if (!B1B2.first.empty())
-          {
-            P1.insert(B1B2.first);
-          }
-          if (!B1B2.second.empty())
-          {
-            P1.insert(B1B2.second);
+            Pr.erase(B);
+            Pr.insert(B1B2.first);
+            Pr.insert(B1B2.second);
+            break;
           }
         }
       }
@@ -227,7 +221,7 @@ template <class LTS_TYPE> class Cleaveland
 
     /* Check if the two initial states are in the same block */
     bool init1found, init2found = false;
-    for (Block B : P1)
+    for (Block B : Pr)
     {
       for (State s : B)
       {
@@ -246,7 +240,7 @@ template <class LTS_TYPE> class Cleaveland
         return true_();
       }
       // if one is in this block but the other isn't, the LTSs are not
-      // equivalent
+      //   equivalent
       else if (init1found || init2found)
       {
         break;
