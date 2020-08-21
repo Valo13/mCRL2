@@ -438,7 +438,8 @@ template <class LTS_TYPE> class Distinguisher
     }
 
     /* Check if the two initial states are in the same block */
-    bool init1found, init2found = false;
+    bool init1found = false;
+    bool init2found = false;
     for (Block B : Pr)
     {
       for (State s : B)
