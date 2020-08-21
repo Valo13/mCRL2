@@ -117,8 +117,8 @@ template <class LTS_TYPE> class Distinguisher
   }
 
   /**
-   * @brief canMoveToBlock Returns whether a given state has a transition with a
-   *   given action into a given block (exists s' \in B : s -a-> s')
+   * @brief canMoveIntoBlock Returns whether a given state has a transition with
+   *   a given action into a given block (exists s' \in B : s -a-> s')
    * @param s The state from which to move
    * @param a The action to move along
    * @param B The block to move into
@@ -138,8 +138,8 @@ template <class LTS_TYPE> class Distinguisher
   }
 
   /**
-   * @brief Creates a regular formula that represents a given action in case the
-   *   compared LTSs are in the lts format
+   * @brief createRegularFormula Creates a regular formula that represents a
+   *   given action in case the compared LTSs are in the lts format
    * @param a The action for which to create a regular formula
    * @return The created regular formula
    */
@@ -150,8 +150,8 @@ template <class LTS_TYPE> class Distinguisher
   }
 
   /**
-   * @brief Creates a regular formula that represents a given action in case the
-   *   compared LTSs are in the aut or fsm format
+   * @brief createRegularFormula Creates a regular formula that represents a
+   *   given action in case the compared LTSs are in the aut or fsm format
    * @param a The action for which to create a regular formula
    * @return The created regular formula
    */
@@ -164,8 +164,8 @@ template <class LTS_TYPE> class Distinguisher
   }
 
   /**
-   * @brief Create a state formula that distinguishes two given states for the
-   *   non-straightforward approach. The pseudocode is as follows:
+   * @brief delta Create a state formula that distinguishes two given states for
+   *   the non-straightforward approach. The pseudocode is as follows:
    *   delta(s1, s2)
    *     DB := deepest block in block tree that contains s1 and s2
    *     sL := s1 if s1 in the left child, else s2
@@ -175,7 +175,7 @@ template <class LTS_TYPE> class Distinguisher
    *     size := \infty
    *     SL := \{s' | sL -a-> s'\} \cap B'
    *     SR := \{s' | sR -a-> s'\}
-   *     sPhi := false;
+   *     sPhi := false
    *     for sLp in SL
    *       Gamma := \emptyset
    *       for sRp \in SR
@@ -310,8 +310,8 @@ template <class LTS_TYPE> class Distinguisher
 
   public:
   /**
-   * @brief bisim Checks whether the two given LTSs <S1, s01, L, ->1> and <S2,
-   *   s02, L, ->2> are strongly bisimilar. If not, returns a mu-calculus
+   * @brief distinguish Checks whether the two given LTSs <S1, s01, L, ->1> and
+   *   <S2, s02, L, ->2> are equivalent. If not, returns a mu-calculus
    *   formula that is true on one LTS and false on the other. The pseudo code
    *   is as follows:
    *   bisim(l1, l2)
@@ -330,6 +330,9 @@ template <class LTS_TYPE> class Distinguisher
    *               move to next block to split
    * @param l1 The first LTS to comapre with
    * @param l2 The second LTS to compare with
+   * @param equivalence The equivalence used
+   * @param straightforward Whether to use the "straightforward" approach, which
+   *   is simpler but generates larger formulas
    * @return A mu-calculus formula that is true on one LTS and false on the
    *   other if they are not bisimilar, else the mu-calculus formula true
    */
