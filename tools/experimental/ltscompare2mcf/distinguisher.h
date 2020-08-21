@@ -9,8 +9,7 @@
 
 #include <set>
 
-#include "mcrl2/lts/action_label_string.h"
-#include "mcrl2/lts/detail/liblts_merge.h"
+#include "mcrl2/lts/lts_algorithm.h"
 #include "mcrl2/modal_formula/action_formula.h"
 #include "mcrl2/modal_formula/state_formula.h"
 #include "mcrl2/modal_formula/traverser.h"
@@ -20,7 +19,6 @@
 using namespace mcrl2;
 using namespace mcrl2::lts;
 using namespace mcrl2::state_formulas;
-using namespace mcrl2::utilities;
 
 namespace mcrl2::distinguisher
 {
@@ -335,8 +333,18 @@ template <class LTS_TYPE> class Distinguisher
    * @return A mu-calculus formula that is true on one LTS and false on the
    *   other if they are not bisimilar, else the mu-calculus formula true
    */
-  state_formula distinguish(LTS_TYPE l1, LTS_TYPE l2, bool straightforward)
+  state_formula distinguish(LTS_TYPE l1, LTS_TYPE l2,
+                            lts_equivalence equivalence, bool straightforward)
   {
+    // change equivalence problems to bisimulation problems where possible
+    if (equivalence == lts_eq_trace)
+    {
+      lts::detail::bisimulation_reduce(l1);
+      determinise(l1);
+      lts::detail::bisimulation_reduce(l2);
+      determinise(l2);
+    }
+
     init1 = l1.initial_state();
     init2 = l2.initial_state() + l1.num_states();
     mcrl2::lts::detail::merge(l1, l2);

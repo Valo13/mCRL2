@@ -9,9 +9,10 @@
 
 #include "distinguisher.h"
 
-#include "mcrl2/modal_formula/state_formula.h"
-#include "mcrl2/lts/lts_io.h"
 #include "mcrl2/lts/lts_aut.h"
+#include "mcrl2/lts/lts_equivalence.h"
+#include "mcrl2/lts/lts_io.h"
+#include "mcrl2/modal_formula/state_formula.h"
 #include "mcrl2/utilities/input_input_tool.h"
 #include "mcrl2/utilities/tool.h"
 
@@ -28,6 +29,7 @@ class ltscompare2mcf_tool : public ltscompare2mcf_base
   private:
   std::string lts1_name = "";
   std::string lts2_name = "";
+  lts_equivalence equivalence = lts_eq_none;
   bool straightforward;
 
   template <class LTS_TYPE> bool lts_compare(void)
@@ -37,7 +39,8 @@ class ltscompare2mcf_tool : public ltscompare2mcf_base
     l2.load(lts2_name);
 
     distinguisher::Distinguisher<LTS_TYPE> distinguisher;
-    state_formula f = distinguisher.distinguish(l1, l2, straightforward);
+    state_formula f =
+        distinguisher.distinguish(l1, l2, equivalence, straightforward);
     mCRL2log(info) << "Distinguishing formula: " << pp(f);
 
     return true;
@@ -51,6 +54,12 @@ class ltscompare2mcf_tool : public ltscompare2mcf_base
     desc.add_option(
         "straightforward",
         "use the \"straightforward\" approach for generating formulas", 's');
+    desc.add_option("equivalence",
+                    make_enum_argument<lts_equivalence>("NAME)")
+                        .add_value(lts_eq_none, true)
+                        .add_value(lts_eq_bisim)
+                        .add_value(lts_eq_trace),
+                    "use equivalence NAME :", 'e');
   };
 
   void parse_options(const command_line_parser& parser) override
@@ -63,6 +72,12 @@ class ltscompare2mcf_tool : public ltscompare2mcf_base
     else
     {
       parser.error("No input files found");
+    }
+
+    equivalence = parser.option_argument_as<lts_equivalence>("equivalence");
+    if (equivalence == lts_eq_none)
+    {
+      parser.error("Please select an equivalence");
     }
 
     straightforward = parser.has_option("straightforward");
