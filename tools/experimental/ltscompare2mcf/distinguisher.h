@@ -54,7 +54,7 @@ template <class LTS_TYPE> class Distinguisher
   /* Describes a partitioning tree of blocks for the non-straightforward
    *   approach. When a block B is split in B1 and B2 using action a and block
    *   B', B1 (can do a into B') becomes the left child, B2 (cannot do a into
-   *   B') the right child and the plit is labelled with a and B' */
+   *   B') the right child and the split is labelled with a and B' */
   std::map<Block, Block> leftChild;
   std::map<Block, Block> rightChild;
   std::map<Block, Action> splitByAction;
@@ -324,8 +324,12 @@ template <class LTS_TYPE> class Distinguisher
    */
   state_formula delta(State s1, State s2, bool weak)
   {
-    // find the deepest block that contains s1 and s2
+    /* Find the deepest block DB in the split tree that contains s1 and s2.
+     * Below DB, it is split into two blocks L (B1) and R (B2) using action a
+     *   and splitter B' */
     Block DB = allStates;
+    // sL: the state in {s1, s2} that is in L after the split
+    // sR: the state in {s1, s2} that is in R after the split
     State sL, sR;
     while (true)
     {
@@ -363,13 +367,27 @@ template <class LTS_TYPE> class Distinguisher
 
     size_t smallestSize = SIZE_MAX;
     state_formula smallestPhi;
+    // SL: all states in B' that can be reached with an a step from sR
+    // cannot be empty, otherwise there is no split and s1 and s2 are equivalent
     Block SL = utilities::detail::set_intersection(nextStates(sL, a), Bp);
+    // SR: all states (outside of B') that can be reached with an a step from sR
+    // if empty, sL can simply be distinguished from sR with <a>true
     Block SR = nextStates(sR, a);
 
-    // create the smallest formula
+    /* We can distinguish sL with sR if we can distinguish a state in SL with
+     *   all states in SR.
+     * We try out all states in SL and pick the smallest formula.
+     * We only need one state from SL since for sL we want to create a formula
+     *   of the form <a>Phi, which we can satisfy by picking some a-transition
+     *   into SL for which Phi holds.
+     * We need every state from SR since for sR we want to create a formula of
+     *   the form !<a>Phi, which we can only satisfy if after every a-transition
+     *   Phi does not hold */
     for (State sLp : SL)
     {
-      // create a conjunction of subformulas
+      // create a mucalculus formula that distinguishes sLp with all states in
+      //   SR by taking the conjunction of the formulas that distinguish sLp
+      //   with sRp for every sRp in SR
       std::set<state_formula> Gamma;
       for (State sRp : SR)
       {
@@ -378,7 +396,8 @@ template <class LTS_TYPE> class Distinguisher
       state_formula Phi = utilities::detail::join<state_formula>(
           Gamma.begin(), Gamma.end(),
           [](state_formula a, state_formula b) { return and_(a, b); }, true_());
-      // if it is smaller than the up to now smallest found Phi, replace it
+      // if Phi using this sLp is smaller than the up to now smallest found Phi,
+      //   replace it
       size_traverser t;
       t.apply(Phi);
       size_t PhiSize = t.result;
@@ -389,7 +408,11 @@ template <class LTS_TYPE> class Distinguisher
       }
     }
 
+    // create the final formula <a>Phi
     state_formula dPhi = may(createRegularFormula(a, weak), smallestPhi);
+
+    // with <a>Phi we distinguish sL from sR, but we want to distinguish s1 from
+    //   s2, so we need to negate the formula in case sL == s2
     if (sL == s1)
     {
       return dPhi;
