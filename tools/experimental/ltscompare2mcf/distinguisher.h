@@ -100,6 +100,28 @@ template <class LTS_TYPE> class Distinguisher
     s += "}";
     return s;
   }
+
+  /**
+   * @brief partitionToString Creates a string representation of a partition for
+   *   debugging purposes
+   * @param p The partition for which to create a string representation
+   * @return The string representation of the given partition
+   */
+  std::string partitionToString(Partition p)
+  {
+    std::string s = "{";
+    for (Block b : p)
+    {
+      s += blockToString(b) + ", ";
+    }
+    if (s.size() > 2)
+    {
+      s.pop_back();
+      s.pop_back();
+    }
+    s += "}";
+    return s;
+  }
 #endif // !NDEBUG
 
   /**
@@ -499,6 +521,10 @@ template <class LTS_TYPE> class Distinguisher
         }
       }
     }
+
+#ifndef NDEBUG
+    std::cout << "Final partitioning:  " << partitionToString(Pr) << "\n";
+#endif // !NDEBUG
 
     /* Check if the two initial states are in the same block */
     bool init1found = false;
