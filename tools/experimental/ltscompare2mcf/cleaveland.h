@@ -9,11 +9,15 @@
 
 #include <set>
 
-#include "mcrl2/modal_formula/state_formula.h"
 #include "mcrl2/lts/detail/liblts_merge.h"
+#include "mcrl2/modal_formula/action_formula.h"
+#include "mcrl2/modal_formula/state_formula.h"
+#include "mcrl2/modal_formula/regular_formula.h"
+#include "mcrl2/process/untyped_multi_action.h"
 
-using namespace mcrl2::state_formulas;
+using namespace mcrl2;
 using namespace mcrl2::lts;
+using namespace mcrl2::state_formulas;
 using namespace mcrl2::utilities;
 
 namespace mcrl2::cleaveland
@@ -35,6 +39,7 @@ template <class LTS_TYPE> class Cleaveland
   private:
   State init1, init2;
   std::map<State, std::map<Action, std::set<State>>> nextStates;
+  std::map<Block, state_formula> blockFormulas;
 
   /**
    * @brief nextState Returns the set of reachable states given a source state
@@ -91,8 +96,8 @@ template <class LTS_TYPE> class Cleaveland
    * @param B A block to split
    * @param a The action to split over
    * @param Bp The block to split against
-   * @returns A pair of blocks, one with states that can reach the same
-   * blocks when following a given action, and one with states that can't.
+   * @returns A pair of blocks, one with states that can reach block B' when
+   *   following action a and one with states that can't.
    */
   std::pair<Block, Block> split(Block B, Action a, Block Bp)
   {
@@ -166,6 +171,8 @@ template <class LTS_TYPE> class Cleaveland
     {
       S.insert(s);
     }
+    blockFormulas[S] = true_();
+
     // we'll use 2 partitions: one to refine (Pr) and one to iterate over (Pi)
     Partition Pr, Pi = {};
     Pr.insert(S);
@@ -183,15 +190,25 @@ template <class LTS_TYPE> class Cleaveland
           for (Block Bp : Pr)
           {
             std::pair<Block, Block> B1B2 = this->split(B, a, Bp);
+            Block B1 = B1B2.first;
+            Block B2 = B1B2.second;
             // if the block was actually split, also split it in Pr and move to
             //   the next block in Pi
-            if (!(B1B2.first.empty() || B1B2.second.empty()))
+            if (!(B1.empty() || B2.empty()))
             {
               changed = true;
               split = true;
               Pr.erase(B);
-              Pr.insert(B1B2.first);
-              Pr.insert(B1B2.second);
+              Pr.insert(B1);
+              Pr.insert(B2);
+              // assign distinguishing formulas
+              state_formula diamond =
+                  may(regular_formulas::regular_formula(
+                          action_formulas::action_formula(
+                              process::untyped_multi_action(a))),
+                      blockFormulas.at(Bp));
+              blockFormulas[B1] = and_(blockFormulas.at(B), diamond);
+              blockFormulas[B2] = and_(blockFormulas.at(B), not_(diamond));
               break;
             }
           }
@@ -226,13 +243,12 @@ template <class LTS_TYPE> class Cleaveland
       }
       // if one is in this block but the other isn't, the LTSs are not
       //   equivalent
-      else if (init1found || init2found)
+      else if (init1found)
       {
-        break;
+        return blockFormulas.at(B);
       }
     }
 
-    /* Create distinguishing formula */
     return false_();
   }
 };
