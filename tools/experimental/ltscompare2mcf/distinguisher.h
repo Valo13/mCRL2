@@ -25,9 +25,11 @@ namespace mcrl2::distinguisher
 {
 
 /**
- * Implements the Kanellakis-Smolka algorithm based that returns a mu-calculus
- *   formula according to "On Automatically Explaining Bisimulation
- *   inequivalence" from 1990 by Rance Cleaveland
+ * Implements the Kanellakis-Smolka and Groote-Vaandrager algorithms that
+ *   returns a mu-calculus formula according to "On Automatically Explaining
+ *   Bisimulation inequivalence" from 1990 by Rance Cleaveland and "Computing
+ *   Distinguishing Formulas for Branching Bisimulation" from 1991 by Henri
+ *   Korver
  */
 template <class LTS_TYPE> class Distinguisher
 {
@@ -38,6 +40,7 @@ template <class LTS_TYPE> class Distinguisher
   typedef typename LTS_TYPE::action_label_t Action;
 
   private:
+  int freshVarCounter = 0;
   State init1, init2;
   Block allStates;
   std::map<State, std::map<Action, std::set<State>>> nextStatesMap;
@@ -145,20 +148,50 @@ template <class LTS_TYPE> class Distinguisher
 
   /**
    * @brief canMoveIntoBlock Returns whether a given state has a transition with
-   *   a given action into a given block (exists s' \in B : s -a-> s')
+   *   a given action into a given block.
+   *   In case not branching: exists s' \in B' : s -a-> s'
+   *   In case branching: exists s_0..s_n \in B, s' \in B' :
+   *                      s = s_0 -tau-> .. -tau-> s_n -a-> s'
    * @param s The state from which to move
+   * @param B The block that s came from
    * @param a The action to move along
-   * @param B The block to move into
+   * @param Bp The block to move into
+   * @param branching Whether the equivalence is branching
    * @return Whether a given state has a transition with a given action into a
    *   given block
    */
-  bool canMoveIntoBlock(State s, Action a, Block B)
+  bool canMoveIntoBlock(State s, Block B, Action a, Block Bp, bool branching)
   {
-    for (State sp : B)
+    if (branching)
     {
-      if (nextStates(s, a).count(sp) > 0)
+      // check if we can already move into Bp from s
+      if (canMoveIntoBlock(s, B, a, Bp, false))
       {
         return true;
+      }
+      else
+      {
+        // do a tau transition to a state in B and try again
+        for (State si : nextStates(s, Action::tau_action()))
+        {
+          if (B.count(si) > 0)
+          {
+            if (canMoveIntoBlock(si, B, a, Bp, true))
+            {
+              return true;
+            }
+          }
+        }
+      }
+    }
+    else
+    {
+      for (State sp : Bp)
+      {
+        if (nextStates(s, a).count(sp) > 0)
+        {
+          return true;
+        }
       }
     }
     return false;
@@ -218,6 +251,24 @@ template <class LTS_TYPE> class Distinguisher
                 {process::action(process::action_label(a, {}), {})})));
 
     return addTauSteps(aformula, weak);
+  }
+
+  /**
+   * @brief untilFormula Creates a state formula that represents the until
+   *   operator phi1<a>phi2 from HMLU, namely mu X.phi1 && (<tau>X || <a>phi2)
+   * @param phi1 The first state formula in the until operator
+   * @param a The action in the until operator
+   * @param phi2 The second state formula in the until operator
+   * @return The state formula that represents the until operator in HMLU
+   */
+  state_formula untilFormula(state_formula phi1, Action a, state_formula phi2)
+  {
+    std::string var = "X" + std::to_string(freshVarCounter++);
+    return mu(var, {},
+              and_(phi1, or_(may(regular_formulas::regular_formula(
+                                     action_formulas::multi_action()),
+                                 variable(var, {})),
+                             may(createRegularFormula(a, false), phi2))));
   }
 
   /**
@@ -343,17 +394,18 @@ template <class LTS_TYPE> class Distinguisher
    * @param B A block to split
    * @param a The action to split over
    * @param Bp The block to split against
+   * @param branching Whether the equivalence is branching
    * @return A pair of blocks, one with states that can reach block B' when
    *   following action a and one with states that can't.
    */
-  std::pair<Block, Block> split(Block B, Action a, Block Bp)
+  std::pair<Block, Block> split(Block B, Action a, Block Bp, bool branching)
   {
     Block B1, B2 = {};
 
     // collect all states that can move into exactly the same blocks
     for (State s : B)
     {
-      if (canMoveIntoBlock(s, a, Bp))
+      if (canMoveIntoBlock(s, B, a, Bp, branching))
       {
         B1.insert(s);
       }
@@ -369,9 +421,9 @@ template <class LTS_TYPE> class Distinguisher
   public:
   /**
    * @brief distinguish Checks whether the two given LTSs <S1, s01, L, ->1> and
-   *   <S2, s02, L, ->2> are equivalent. If not, returns a mu-calculus
-   *   formula that is true on one LTS and false on the other. The pseudo code
-   *   is as follows:
+   *   <S2, s02, L, ->2> are equivalent. If not, returns a mu-calculus formula
+   *   that is true on one LTS and false on the other. The pseudo code is as
+   *   follows:
    *   bisim(l1, l2)
    *     P := {S1 U S2}
    *     changed := true
@@ -386,7 +438,7 @@ template <class LTS_TYPE> class Distinguisher
    *               changed := true
    *               replace B in P by B1 and B2
    *               move to next block to split
-   * @param l1 The first LTS to comapre with
+   * @param l1 The first LTS to compare with
    * @param l2 The second LTS to compare with
    * @param equivalence The equivalence used
    * @param straightforward Whether to use the "straightforward" approach, which
@@ -421,6 +473,7 @@ template <class LTS_TYPE> class Distinguisher
 
     bool weak =
         equivalence == lts_eq_weak_bisim || equivalence == lts_eq_weak_trace;
+    bool branching = equivalence == lts_eq_branching_bisim;
 
     init1 = l1.initial_state();
     init2 = l2.initial_state() + l1.num_states();
@@ -464,53 +517,67 @@ template <class LTS_TYPE> class Distinguisher
         {
           for (Block Bp : Pr)
           {
-            std::pair<Block, Block> B1B2 = this->split(B, a, Bp);
-            Block B1 = B1B2.first;
-            Block B2 = B1B2.second;
-            // if the block was actually split, also split it in Pr and move to
-            //   the next block in Pi
-            if (!(B1.empty() || B2.empty()))
+            if (!branching || B != Bp || a != Action::tau_action())
             {
-              changed = true;
-              split = true;
-              Pr.erase(B);
-              Pr.insert(B1);
-              Pr.insert(B2);
+              std::pair<Block, Block> B1B2 = this->split(B, a, Bp, branching);
+              Block B1 = B1B2.first;
+              Block B2 = B1B2.second;
+              // if the block was actually split, also split it in Pr and move
+              //   to the next block in Pi
+              if (!(B1.empty() || B2.empty()))
+              {
+                changed = true;
+                split = true;
+                Pr.erase(B);
+                Pr.insert(B1);
+                Pr.insert(B2);
 
 #ifndef NDEBUG
-              std::cout << "Split block B = " << blockToString(B)
-                        << " into blocks B1 = " << blockToString(B1)
-                        << " and B2 = " << blockToString(B2) << " over action "
-                        << pp(a) << " using block B' = " << blockToString(Bp)
-                        << "\n";
+                std::cout << "Split block B = " << blockToString(B)
+                          << " into blocks B1 = " << blockToString(B1)
+                          << " and B2 = " << blockToString(B2)
+                          << " over action " << pp(a)
+                          << " using block B' = " << blockToString(Bp) << "\n";
 #endif // !NDEBUG
 
-              if (straightforward)
-              {
-                // assign distinguishing formulas
-                state_formula diamond =
-                    may(createRegularFormula(a, weak), blockFormulas.at(Bp));
-                blockFormulas[B1] = and_(blockFormulas.at(B), diamond);
-                blockFormulas[B2] = and_(blockFormulas.at(B), not_(diamond));
+                if (straightforward)
+                {
+                  // assign distinguishing formulas
+                  state_formula stepFormula;
+                  if (branching)
+                  {
+                    stepFormula = untilFormula(blockFormulas.at(B), a,
+                                               blockFormulas.at(Bp));
+                  }
+                  else
+                  {
+                    stepFormula = may(createRegularFormula(a, weak),
+                                      blockFormulas.at(Bp));
+                  }
+
+                  blockFormulas[B1] = and_(blockFormulas.at(B), stepFormula);
+                  blockFormulas[B2] =
+                      and_(blockFormulas.at(B), not_(stepFormula));
 
 #ifndef NDEBUG
-                std::cout << "Block B1 = " << blockToString(B1)
-                          << " got formula " << pp(blockFormulas.at(B1))
-                          << "\n";
-                std::cout << "Block B2 = " << blockToString(B2)
-                          << " got formula " << pp(blockFormulas.at(B2))
-                          << "\n";
+                  std::cout << "Block B1 = " << blockToString(B1)
+                            << " got formula " << pp(blockFormulas.at(B1))
+                            << "\n";
+                  std::cout << "Block B2 = " << blockToString(B2)
+                            << " got formula " << pp(blockFormulas.at(B2))
+                            << "\n";
 #endif // !NDEBUG
+                }
+                else
+                {
+                  // add children to the block tree
+                  leftChild[B] = B1;
+                  rightChild[B] = B2;
+                  splitByAction[B] = a;
+                  splitByBlock[B] = Bp;
+                }
+                break;
               }
-              else
-              {
-                // add children to the block tree
-                leftChild[B] = B1;
-                rightChild[B] = B2;
-                splitByAction[B] = a;
-                splitByBlock[B] = Bp;
-              }
-              break;
             }
           }
 
@@ -557,7 +624,14 @@ template <class LTS_TYPE> class Distinguisher
         }
         else
         {
-          return delta(init1, init2, weak);
+          if (branching)
+          {
+            return false_();
+          }
+          else
+          {
+            return delta(init1, init2, weak);
+          }
         }
       }
     }
