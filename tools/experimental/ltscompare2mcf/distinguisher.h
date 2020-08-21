@@ -22,7 +22,7 @@ using namespace mcrl2::lts;
 using namespace mcrl2::state_formulas;
 using namespace mcrl2::utilities;
 
-namespace mcrl2::cleaveland
+namespace mcrl2::distinguisher
 {
 
 /**
@@ -30,7 +30,7 @@ namespace mcrl2::cleaveland
  *   formula according to "On Automatically Explaining Bisimulation
  *   inequivalence" from 1990 by Rance Cleaveland
  */
-template <class LTS_TYPE> class Cleaveland
+template <class LTS_TYPE> class Distinguisher
 {
   typedef size_t State;
   typedef std::set<State> Block;
@@ -335,7 +335,7 @@ template <class LTS_TYPE> class Cleaveland
    * @return A mu-calculus formula that is true on one LTS and false on the
    *   other if they are not bisimilar, else the mu-calculus formula true
    */
-  state_formula bisim(LTS_TYPE l1, LTS_TYPE l2, bool straightforward)
+  state_formula distinguish(LTS_TYPE l1, LTS_TYPE l2, bool straightforward)
   {
     init1 = l1.initial_state();
     init2 = l2.initial_state() + l1.num_states();
@@ -476,4 +476,4 @@ template <class LTS_TYPE> class Cleaveland
   }
 };
 
-} // namespace mcrl2::cleaveland
+} // namespace mcrl2::distinguisher

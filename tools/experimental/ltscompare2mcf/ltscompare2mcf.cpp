@@ -7,7 +7,7 @@
 // http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include "cleaveland.h"
+#include "distinguisher.h"
 
 #include "mcrl2/modal_formula/state_formula.h"
 #include "mcrl2/lts/lts_io.h"
@@ -36,8 +36,8 @@ class ltscompare2mcf_tool : public ltscompare2mcf_base
     l1.load(lts1_name);
     l2.load(lts2_name);
 
-    cleaveland::Cleaveland<LTS_TYPE> cleaveland;
-    state_formula f = cleaveland.bisim(l1, l2, straightforward);
+    distinguisher::Distinguisher<LTS_TYPE> distinguisher;
+    state_formula f = distinguisher.distinguish(l1, l2, straightforward);
     mCRL2log(info) << "Distinguishing formula: " << pp(f);
 
     return true;
