@@ -195,7 +195,7 @@ template <class LTS_TYPE> class Cleaveland
    * @return A mu-calculus formula that is true on one LTS and false on the
    *   other if they are not bisimilar, else the mu-calculus formula true
    */
-  state_formula bisim(LTS_TYPE l1, LTS_TYPE l2)
+  state_formula bisim(LTS_TYPE l1, LTS_TYPE l2, bool straightforward)
   {
     init1 = l1.initial_state();
     init2 = l2.initial_state() + l1.num_states();
@@ -253,23 +253,27 @@ template <class LTS_TYPE> class Cleaveland
               Pr.insert(B1);
               Pr.insert(B2);
               // assign distinguishing formulas
-              state_formula diamond =
-                  may(createRegularFormula(a), blockFormulas.at(Bp));
-              blockFormulas[B1] = and_(blockFormulas.at(B), diamond);
-              blockFormulas[B2] = and_(blockFormulas.at(B), not_(diamond));
+              if (straightforward)
+              {
+                state_formula diamond =
+                    may(createRegularFormula(a), blockFormulas.at(Bp));
+                blockFormulas[B1] = and_(blockFormulas.at(B), diamond);
+                blockFormulas[B2] = and_(blockFormulas.at(B), not_(diamond));
 
 #ifndef NDEBUG
-              std::cout << "Split block B = " << blockToString(B)
-                        << " into blocks B1 = " << blockToString(B1)
-                        << " and B2 = " << blockToString(B2) << " over action "
-                        << pp(a) << " using block B' = " << blockToString(Bp)
-                        << "\n";
-              std::cout << "Block B1 = " << blockToString(B1) << " got formula "
-                        << pp(blockFormulas.at(B1)) << "\n";
-              std::cout << "Block B2 = " << blockToString(B2) << " got formula "
-                        << pp(blockFormulas.at(B2)) << "\n";
+                std::cout << "Split block B = " << blockToString(B)
+                          << " into blocks B1 = " << blockToString(B1)
+                          << " and B2 = " << blockToString(B2)
+                          << " over action " << pp(a)
+                          << " using block B' = " << blockToString(Bp) << "\n";
+                std::cout << "Block B1 = " << blockToString(B1)
+                          << " got formula " << pp(blockFormulas.at(B1))
+                          << "\n";
+                std::cout << "Block B2 = " << blockToString(B2)
+                          << " got formula " << pp(blockFormulas.at(B2))
+                          << "\n";
 #endif // !NDEBUG
-
+              }
               break;
             }
           }
@@ -306,7 +310,14 @@ template <class LTS_TYPE> class Cleaveland
       //   equivalent
       else if (init1found)
       {
-        return blockFormulas.at(B);
+        if (straightforward)
+        {
+          return blockFormulas.at(B);
+        }
+        else
+        {
+          return false_();
+        }
       }
     }
 

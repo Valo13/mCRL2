@@ -12,7 +12,7 @@
 #include "mcrl2/modal_formula/state_formula.h"
 #include "mcrl2/lts/lts_io.h"
 #include "mcrl2/lts/lts_aut.h"
-#include "mcrl2/utilities/input_input_output_tool.h"
+#include "mcrl2/utilities/input_input_tool.h"
 #include "mcrl2/utilities/tool.h"
 
 using namespace mcrl2;
@@ -28,6 +28,7 @@ class ltscompare2mcf_tool : public ltscompare2mcf_base
   private:
   std::string lts1_name = "";
   std::string lts2_name = "";
+  bool straightforward;
 
   template <class LTS_TYPE> bool lts_compare(void)
   {
@@ -36,9 +37,9 @@ class ltscompare2mcf_tool : public ltscompare2mcf_base
     l2.load(lts2_name);
 
     cleaveland::Cleaveland<LTS_TYPE> cleaveland;
-    state_formula f = cleaveland.bisim(l1, l2);
+    state_formula f = cleaveland.bisim(l1, l2, straightforward);
     mCRL2log(info) << "Distinguishing formula: " << pp(f);
-    
+
     return true;
   }
 
@@ -46,6 +47,10 @@ class ltscompare2mcf_tool : public ltscompare2mcf_base
   void add_options(interface_description& desc) override
   {
     ltscompare2mcf_base::add_options(desc);
+
+    desc.add_option(
+        "straightforward",
+        "use the \"straightforward\" approach for generating formulas", 's');
   };
 
   void parse_options(const command_line_parser& parser) override
@@ -59,6 +64,8 @@ class ltscompare2mcf_tool : public ltscompare2mcf_base
     {
       parser.error("No input files found");
     }
+
+    straightforward = parser.has_option("straightforward");
   }
 
   public:
