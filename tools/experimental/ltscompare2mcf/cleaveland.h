@@ -9,6 +9,7 @@
 
 #include <set>
 
+#include "mcrl2/lts/action_label_string.h"
 #include "mcrl2/lts/detail/liblts_merge.h"
 #include "mcrl2/modal_formula/action_formula.h"
 #include "mcrl2/modal_formula/state_formula.h"
@@ -41,12 +42,36 @@ template <class LTS_TYPE> class Cleaveland
   std::map<State, std::map<Action, std::set<State>>> nextStates;
   std::map<Block, state_formula> blockFormulas;
 
+#ifndef NDEBUG
+  /**
+   * @brief blockToString Creates a string representation of a block for
+   *   debugging purposes
+   * @param b The block for which to create a string representation
+   * @return
+   */
+  std::string blockToString(Block b)
+  {
+    std::string s = "{";
+    for (State st : b)
+    {
+      s += std::to_string(st) + ", ";
+    }
+    if (s.size() > 2)
+    {
+      s.pop_back();
+      s.pop_back();
+    }
+    s += "}";
+    return s;
+  }
+#endif // !NDEBUG
+
   /**
    * @brief nextState Returns the set of reachable states given a source state
    *   and an action
    * @param s A source state
    * @param a An action
-   * @returns The set of reachable states
+   * @return The set of reachable states
    */
   std::set<State> nextState(State s, Action a)
   {
@@ -66,7 +91,7 @@ template <class LTS_TYPE> class Cleaveland
    * @param s The state from which to move
    * @param a The action to move along
    * @param B The block to move into
-   * @returns  whether a given state has a transition with a given action into a
+   * @return Whether a given state has a transition with a given action into a
    *   given block
    */
   bool canMoveIntoBlock(State s, Action a, Block B)
@@ -79,6 +104,32 @@ template <class LTS_TYPE> class Cleaveland
       }
     }
     return false;
+  }
+
+  /**
+   * @brief Creates a regular formula that represents a given action in case the
+   *   compared LTSs are in the lts format
+   * @param a The action for which to create a regular formula
+   * @return The created regular formula
+   */
+  regular_formulas::regular_formula createRegularFormula(lps::multi_action a)
+  {
+    return regular_formulas::regular_formula(
+        action_formulas::multi_action(a.actions()));
+  }
+
+  /**
+   * @brief Creates a regular formula that represents a given action in case the
+   *   compared LTSs are in the aut or fsm format
+   * @param a The action for which to create a regular formula
+   * @return The created regular formula
+   */
+  regular_formulas::regular_formula
+  createRegularFormula(lts::action_label_string a)
+  {
+    return regular_formulas::regular_formula(
+        action_formulas::multi_action(process::action_list(
+            {process::action(process::action_label(a, {}), {})})));
   }
 
   /**
@@ -96,7 +147,7 @@ template <class LTS_TYPE> class Cleaveland
    * @param B A block to split
    * @param a The action to split over
    * @param Bp The block to split against
-   * @returns A pair of blocks, one with states that can reach block B' when
+   * @return A pair of blocks, one with states that can reach block B' when
    *   following action a and one with states that can't.
    */
   std::pair<Block, Block> split(Block B, Action a, Block Bp)
@@ -141,7 +192,7 @@ template <class LTS_TYPE> class Cleaveland
    *               move to next block to split
    * @param l1 The first LTS to comapre with
    * @param l2 The second LTS to compare with
-   * @returns A mu-calculus formula that is true on one LTS and false on the
+   * @return A mu-calculus formula that is true on one LTS and false on the
    *   other if they are not bisimilar, else the mu-calculus formula true
    */
   state_formula bisim(LTS_TYPE l1, LTS_TYPE l2)
@@ -203,12 +254,22 @@ template <class LTS_TYPE> class Cleaveland
               Pr.insert(B2);
               // assign distinguishing formulas
               state_formula diamond =
-                  may(regular_formulas::regular_formula(
-                          action_formulas::action_formula(
-                              process::untyped_multi_action(a))),
-                      blockFormulas.at(Bp));
+                  may(createRegularFormula(a), blockFormulas.at(Bp));
               blockFormulas[B1] = and_(blockFormulas.at(B), diamond);
               blockFormulas[B2] = and_(blockFormulas.at(B), not_(diamond));
+
+#ifndef NDEBUG
+              std::cout << "Split block B = " << blockToString(B)
+                        << " into blocks B1 = " << blockToString(B1)
+                        << " and B2 = " << blockToString(B2) << " over action "
+                        << pp(a) << " using block B' = " << blockToString(Bp)
+                        << "\n";
+              std::cout << "Block B1 = " << blockToString(B1) << " got formula "
+                        << pp(blockFormulas.at(B1)) << "\n";
+              std::cout << "Block B2 = " << blockToString(B2) << " got formula "
+                        << pp(blockFormulas.at(B2)) << "\n";
+#endif // !NDEBUG
+
               break;
             }
           }
