@@ -45,6 +45,9 @@ template <class LTS_TYPE> class Distinguisher
   Block allStates;
   std::map<State, std::map<Action, std::set<State>>> nextStatesMap;
 
+  /* Used to prevent cycles for canMoveIntoBlockRec */
+  std::set<State> visited;
+
   /* Holds the formulas assigned to blocks for the straightforward approach */
   std::map<Block, state_formula> blockFormulas;
 
@@ -147,8 +150,8 @@ template <class LTS_TYPE> class Distinguisher
   }
 
   /**
-   * @brief canMoveIntoBlock Returns whether a given state has a transition with
-   *   a given action into a given block.
+   * @brief canMoveIntoBlock Returns whether a given state has a transition
+   *   (after some tau-transitions) with a given action into a given block.
    *   In case not branching: exists s' \in B' : s -a-> s'
    *   In case branching: exists s_0..s_n \in B, s' \in B' :
    *                      s = s_0 -tau-> .. -tau-> s_n -a-> s'
@@ -157,32 +160,15 @@ template <class LTS_TYPE> class Distinguisher
    * @param a The action to move along
    * @param Bp The block to move into
    * @param branching Whether the equivalence is branching
-   * @return Whether a given state has a transition with a given action into a
-   *   given block
+   * @return Whether a given state can move with a given action into a given
+   *   block
    */
   bool canMoveIntoBlock(State s, Block B, Action a, Block Bp, bool branching)
   {
     if (branching)
     {
-      // check if we can already move into Bp from s
-      if (canMoveIntoBlock(s, B, a, Bp, false))
-      {
-        return true;
-      }
-      else
-      {
-        // do a tau transition to a state in B and try again
-        for (State si : nextStates(s, Action::tau_action()))
-        {
-          if (B.count(si) > 0)
-          {
-            if (canMoveIntoBlock(si, B, a, Bp, true))
-            {
-              return true;
-            }
-          }
-        }
-      }
+      visited.clear();
+      return canMoveIntoBlockRec(s, B, a, Bp);
     }
     else
     {
@@ -193,8 +179,43 @@ template <class LTS_TYPE> class Distinguisher
           return true;
         }
       }
+      return false;
     }
-    return false;
+  }
+
+  /**
+   * @brief canMoveIntoBlockRec Recursive part of canMoveIntoBlock in case of
+   *   branching
+   * @param s The state from which to move
+   * @param B The block that s came from
+   * @param a The action to move along
+   * @param Bp The block to move into
+   * @return Whether a given state can move with a given action into a given
+   *   block
+   */
+  bool canMoveIntoBlockRec(State s, Block B, Action a, Block Bp)
+  {
+    visited.insert(s);
+    // check if we can already directly move into Bp from s
+    if (canMoveIntoBlock(s, B, a, Bp, false))
+    {
+      return true;
+    }
+    else
+    {
+      // do a tau transition to a state in B and try again
+      for (State si : nextStates(s, Action::tau_action()))
+      {
+        if (B.count(si) > 0 && visited.count(si) == 0)
+        {
+          if (canMoveIntoBlockRec(si, B, a, Bp))
+          {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
   }
 
   /**
