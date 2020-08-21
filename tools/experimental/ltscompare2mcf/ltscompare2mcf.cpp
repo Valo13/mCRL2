@@ -58,7 +58,9 @@ class ltscompare2mcf_tool : public ltscompare2mcf_base
                     make_enum_argument<lts_equivalence>("NAME)")
                         .add_value(lts_eq_none, true)
                         .add_value(lts_eq_bisim)
-                        .add_value(lts_eq_trace),
+                        .add_value(lts_eq_weak_bisim)
+                        .add_value(lts_eq_trace)
+                        .add_value(lts_eq_weak_trace),
                     "use equivalence NAME :", 'e');
   };
 

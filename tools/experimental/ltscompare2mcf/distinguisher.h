@@ -18,6 +18,7 @@
 
 using namespace mcrl2;
 using namespace mcrl2::lts;
+using namespace mcrl2::lts::detail;
 using namespace mcrl2::state_formulas;
 
 namespace mcrl2::distinguisher
@@ -52,6 +53,10 @@ template <class LTS_TYPE> class Distinguisher
   std::map<Block, Block> rightChild;
   std::map<Block, Action> splitByAction;
   std::map<Block, Block> splitByBlock;
+
+  /* The regular formula that describes any number of tau steps */
+  regular_formulas::regular_formula tauStar = regular_formulas::trans_or_nil(
+      regular_formulas::regular_formula(action_formulas::multi_action()));
 
   /* traverser for a notion of the size of a state formula */
   struct size_traverser : public state_formula_traverser<size_traverser>
@@ -138,29 +143,59 @@ template <class LTS_TYPE> class Distinguisher
   }
 
   /**
+   * @brief addTauSteps Adds tau steps to the regular formula if the equivalence
+   *   used is weak
+   * @param aformula The regular formula of an action a
+   * @param weak Whether the used equivalence is weak (or strong)
+   * @return The created regular formula
+   */
+  regular_formulas::regular_formula
+  addTauSteps(regular_formulas::regular_formula aformula, bool weak)
+  {
+    if (weak)
+    {
+      return regular_formulas::seq(tauStar,
+                                   regular_formulas::seq(aformula, tauStar));
+    }
+    else
+    {
+      return aformula;
+    }
+  }
+
+  /**
    * @brief createRegularFormula Creates a regular formula that represents a
    *   given action in case the compared LTSs are in the lts format
    * @param a The action for which to create a regular formula
+   * @param weak Whether the used equivalence is weak (or strong)
    * @return The created regular formula
    */
-  regular_formulas::regular_formula createRegularFormula(lps::multi_action a)
+  regular_formulas::regular_formula createRegularFormula(lps::multi_action a,
+                                                         bool weak)
   {
-    return regular_formulas::regular_formula(
-        action_formulas::multi_action(a.actions()));
+    regular_formulas::regular_formula aformula =
+        regular_formulas::regular_formula(
+            action_formulas::multi_action(a.actions()));
+
+    return addTauSteps(aformula, weak);
   }
 
   /**
    * @brief createRegularFormula Creates a regular formula that represents a
    *   given action in case the compared LTSs are in the aut or fsm format
    * @param a The action for which to create a regular formula
+   * @param weak Whether the used equivalence is weak (or strong)
    * @return The created regular formula
    */
   regular_formulas::regular_formula
-  createRegularFormula(lts::action_label_string a)
+  createRegularFormula(lts::action_label_string a, bool weak)
   {
-    return regular_formulas::regular_formula(
-        action_formulas::multi_action(process::action_list(
-            {process::action(process::action_label(a, {}), {})})));
+    regular_formulas::regular_formula aformula =
+        regular_formulas::regular_formula(
+            action_formulas::multi_action(process::action_list(
+                {process::action(process::action_label(a, {}), {})})));
+
+    return addTauSteps(aformula, weak);
   }
 
   /**
@@ -190,9 +225,10 @@ template <class LTS_TYPE> class Distinguisher
    *       return -<a>sPhi
    * @param s1 The first of two states to distinguish
    * @param s2 The second of two states to distinguish
+   * @param weak Whether the used equivalence is weak (or strong)
    * @return A state formula that is true on s1 but false on s2
    */
-  state_formula delta(State s1, State s2)
+  state_formula delta(State s1, State s2, bool weak)
   {
     // find the deepest block that contains s1 and s2
     Block DB = allStates;
@@ -243,7 +279,7 @@ template <class LTS_TYPE> class Distinguisher
       std::set<state_formula> Gamma;
       for (State sRp : SR)
       {
-        Gamma.insert(delta(sLp, sRp));
+        Gamma.insert(delta(sLp, sRp, weak));
       }
       state_formula Phi = utilities::detail::join<state_formula>(
           Gamma.begin(), Gamma.end(),
@@ -259,7 +295,7 @@ template <class LTS_TYPE> class Distinguisher
       }
     }
 
-    state_formula dPhi = may(createRegularFormula(a), smallestPhi);
+    state_formula dPhi = may(createRegularFormula(a, weak), smallestPhi);
     if (sL == s1)
     {
       return dPhi;
@@ -340,13 +376,29 @@ template <class LTS_TYPE> class Distinguisher
                             lts_equivalence equivalence, bool straightforward)
   {
     // change equivalence problems to bisimulation problems where possible
-    if (equivalence == lts_eq_trace)
+    switch (equivalence)
     {
-      lts::detail::bisimulation_reduce(l1);
+    case lts_eq_weak_bisim:
+      weak_bisimulation_reduce(l1);
+      weak_bisimulation_reduce(l2);
+      break;
+
+    case lts_eq_weak_trace:
+      bisimulation_reduce(l1, true);
+      tau_star_reduce(l1);
+      bisimulation_reduce(l2, true);
+      tau_star_reduce(l2);
+
+    case lts_eq_trace:
+      bisimulation_reduce(l1);
       determinise(l1);
-      lts::detail::bisimulation_reduce(l2);
+      bisimulation_reduce(l2);
       determinise(l2);
+      break;
     }
+
+    bool weak =
+        equivalence == lts_eq_weak_bisim || equivalence == lts_eq_weak_trace;
 
     init1 = l1.initial_state();
     init2 = l2.initial_state() + l1.num_states();
@@ -415,7 +467,7 @@ template <class LTS_TYPE> class Distinguisher
               {
                 // assign distinguishing formulas
                 state_formula diamond =
-                    may(createRegularFormula(a), blockFormulas.at(Bp));
+                    may(createRegularFormula(a, weak), blockFormulas.at(Bp));
                 blockFormulas[B1] = and_(blockFormulas.at(B), diamond);
                 blockFormulas[B2] = and_(blockFormulas.at(B), not_(diamond));
 
@@ -479,7 +531,7 @@ template <class LTS_TYPE> class Distinguisher
         }
         else
         {
-          return delta(init1, init2);
+          return delta(init1, init2, weak);
         }
       }
     }
