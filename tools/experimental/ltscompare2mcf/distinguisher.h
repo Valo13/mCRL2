@@ -391,6 +391,9 @@ template <class LTS_TYPE> class Distinguisher
       std::set<state_formula> Gamma;
       for (State sRp : SR)
       {
+        // this recursive call eventually terminates, since sLp and sRp were
+        //   split from each other earlier than the split of s1 and s2 (if not,
+        //   sLp and sRp would be in the same set)
         Gamma.insert(delta(sLp, sRp, weak));
       }
       state_formula Phi = utilities::detail::join<state_formula>(
