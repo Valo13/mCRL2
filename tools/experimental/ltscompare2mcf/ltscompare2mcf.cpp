@@ -38,9 +38,9 @@ class ltscompare2mcf_tool : public ltscompare2mcf_base
     l1.load(lts1_name);
     l2.load(lts2_name);
 
-    distinguisher::Distinguisher<LTS_TYPE> distinguisher;
-    state_formula f =
-        distinguisher.distinguish(l1, l2, equivalence, straightforward);
+    distinguisher::Distinguisher<LTS_TYPE> distinguisher(l1, l2, equivalence,
+                                                         straightforward);
+    state_formula f = distinguisher.distinguish();
     mCRL2log(info) << "Distinguishing formula: " << pp(f);
 
     return true;
