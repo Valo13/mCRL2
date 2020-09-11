@@ -31,6 +31,7 @@ class ltscompare2mcf_tool : public ltscompare2mcf_base
   std::string lts2_name = "";
   lts_equivalence equivalence = lts_eq_none;
   bool straightforward;
+  bool blocky_delta;
 
   template <class LTS_TYPE> bool lts_compare(void)
   {
@@ -38,8 +39,8 @@ class ltscompare2mcf_tool : public ltscompare2mcf_base
     l1.load(lts1_name);
     l2.load(lts2_name);
 
-    distinguisher::Distinguisher<LTS_TYPE> distinguisher(l1, l2, equivalence,
-                                                         straightforward);
+    distinguisher::Distinguisher<LTS_TYPE> distinguisher(
+        l1, l2, equivalence, straightforward, blocky_delta);
     state_formula f = distinguisher.distinguish();
     mCRL2log(info) << "Distinguishing formula: " << pp(f);
 
@@ -54,6 +55,11 @@ class ltscompare2mcf_tool : public ltscompare2mcf_base
     desc.add_option(
         "straightforward",
         "use the \"straightforward\" approach for generating formulas", 's');
+    desc.add_option("blocky_delta",
+                    "distinguish using blocks (like in Henri Korver's work) "
+                    "instead of states (like in Rance Cleaveland's work); only "
+                    "has effect for the non-straightforward approach",
+                    'b');
     desc.add_option("equivalence",
                     make_enum_argument<lts_equivalence>("NAME)")
                         .add_value(lts_eq_none, true)
@@ -84,6 +90,7 @@ class ltscompare2mcf_tool : public ltscompare2mcf_base
     }
 
     straightforward = parser.has_option("straightforward");
+    blocky_delta = parser.has_option("blocky_delta");
   }
 
   public:

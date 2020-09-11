@@ -51,6 +51,7 @@ template <class LTS_TYPE> class Distinguisher
   bool branching;
   bool weak;
   bool straightforward;
+  bool blocky_delta;
 
   /* Used to prevent cycles for canMoveIntoBlockRec */
   std::set<State> visited;
@@ -66,6 +67,12 @@ template <class LTS_TYPE> class Distinguisher
   std::map<Block, Block> rightChild;
   std::map<Block, Action> splitByAction;
   std::map<Block, Block> splitByBlock;
+
+  /* Corresponds to r_\alpha in the work of Henri Korver
+   * Given a split B into B1 and B2 with action a, ralpha is the set of blocks
+   *   in the latest partition which can be reached from B2 with one a-step.
+   * To be in line with Henri Korver's work, we assign this partition to B2 */
+  std::map<Block, Partition> ralpha;
 
   /* The regular formula that describes any number of tau steps */
   regular_formulas::regular_formula tauStar = regular_formulas::trans_or_nil(
@@ -238,6 +245,28 @@ template <class LTS_TYPE> class Distinguisher
     {
       return canMoveIntoBlockDirectly(s, B, a, Bp);
     }
+  }
+
+  /**
+   * @brief canMoveIntoBlockDirectly Returns whether there is a state in a given
+   *   block that has a transition with a given action into a given block:
+   *   exists s \in B, s' \in B' : s -a-> s'
+   * @param B The block to move from
+   * @param a The action to move along
+   * @param Bp The block to move into
+   * @return Whether there is a state in a given block that can move with a
+   *   given action into a given block
+   */
+  bool canMoveIntoBlockDirectly(Block B, Action a, Block Bp)
+  {
+    for (State s : B)
+    {
+      if (canMoveIntoBlockDirectly(s, B, a, Bp))
+      {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -431,9 +460,93 @@ template <class LTS_TYPE> class Distinguisher
     // create the final formula <a>Phi
     state_formula dPhi = may(createRegularFormula(a), smallestPhi);
 
-    // with <a>Phi we distinguish sL from sR, but we want to distinguish s1 from
-    //   s2, so we need to negate the formula in case sL == s2
+    /* With <a>Phi we distinguish sL from sR, but we want to distinguish s1 from
+     *   s2, so we need to negate the formula in case sL == s2 */
     if (sL == s1)
+    {
+      return dPhi;
+    }
+    else
+    {
+      return not_(dPhi);
+    }
+  }
+
+  /**
+   * @brief delta Create a state formula that distinguishes two given blocks for
+   *   the non-straightforward approach. The pseudocode is as follows:
+   *   delta(B1, B2)
+   *     DB := deepest block in the block tree that is an ancestor of B1 and B2
+   *     R := right child of DB
+   *     a := action used to split DB
+   *     B' := block used to split DB
+   *     Gamma := \emptyset
+   *     for PB \in r_\alpha(R)
+   *       Gamma := Gamma \cup \{delta(B', PB)\}
+   *     Phi = \bigwedge Gamma
+   *     if B2 \subseteq R
+   *       return <a>Phi
+   *     else
+   *       return -<a>Phi
+   * @param B1 The first of two blocks to distinguish
+   * @param B2 The second of two blocks to distinguish
+   * @return A state formula that is true on states in B1 but false on states in
+   *   B2
+   */
+  state_formula delta(Block B1, Block B2)
+  {
+    /* Find the deepest block DB in the split tree that contains B1 and B2.
+     * To check whether some block B contains B1 or B2, it is enough to check
+     *   whether B contains a state in B1 or B2 due to how the tree is
+     *   constructed. */
+    Block DB = allStates;
+    while (true)
+    {
+      Block left = leftChild.at(DB);
+      if (left.count(*B1.begin()) > 0)
+      {
+        if (left.count(*B2.begin()) > 0)
+        {
+          DB = left;
+        }
+        else
+        {
+          break;
+        }
+      }
+      else
+      {
+        if (left.count(*B2.begin()) > 0)
+        {
+          break;
+        }
+        else
+        {
+          DB = rightChild.at(DB);
+        }
+      }
+    }
+
+    Block R = rightChild.at(DB);
+    Action a = splitByAction.at(DB);
+    Block Bp = splitByBlock.at(DB);
+
+    /* We can distinguish L with R if we can distinguish B' with every block in
+     *   r_\alpha(R). */
+    std::set<state_formula> Gamma;
+    for (Block PB : ralpha.at(R))
+    {
+      Gamma.insert(delta(Bp, PB));
+    }
+    state_formula Phi = utilities::detail::join<state_formula>(
+        Gamma.begin(), Gamma.end(),
+        [](state_formula a, state_formula b) { return and_(a, b); }, true_());
+
+    state_formula dPhi = may(createRegularFormula(a), Phi);
+
+    /* with <a>Phi we distinguish L from R, but we want to distinguish B1 from
+     *   B2, so we need to negate the formula in case R contains B1 */
+    if (R.count(*B2.begin()) > 0)
     {
       return dPhi;
     }
@@ -491,12 +604,12 @@ template <class LTS_TYPE> class Distinguisher
    *   is simpler but generates larger formulas
    */
   Distinguisher(LTS_TYPE l1, LTS_TYPE l2, lts_equivalence equivalence,
-                bool straightforward)
+                bool straightforward, bool blocky_delta)
       : equivalence(equivalence),
         branching(equivalence == lts_eq_branching_bisim),
         weak(equivalence == lts_eq_weak_bisim ||
              equivalence == lts_eq_weak_trace),
-        straightforward(straightforward)
+        straightforward(straightforward), blocky_delta(blocky_delta)
   {
     // change equivalence problems to bisimulation problems where possible
     switch (equivalence)
@@ -613,6 +726,7 @@ template <class LTS_TYPE> class Distinguisher
                           << " using block B' = " << blockToString(Bp) << "\n";
 #endif // !NDEBUG
 
+                // store info needed for computing the distinguishing formula
                 if (straightforward)
                 {
                   // assign distinguishing formulas
@@ -648,6 +762,18 @@ template <class LTS_TYPE> class Distinguisher
                   rightChild[B] = B2;
                   splitByAction[B] = a;
                   splitByBlock[B] = Bp;
+
+                  if (blocky_delta)
+                  {
+                    ralpha[B2] = {};
+                    for (Block PB : Pi)
+                    {
+                      if (canMoveIntoBlockDirectly(B2, a, PB))
+                      {
+                        ralpha[B2].insert(PB);
+                      }
+                    }
+                  }
                 }
                 break;
               }
@@ -705,7 +831,14 @@ template <class LTS_TYPE> class Distinguisher
         }
         else
         {
-          return delta(init1, init2);
+          if (blocky_delta)
+          {
+            return delta(init1Block, init2Block);
+          }
+          else
+          {
+            return delta(init1, init2);
+          }
         }
       }
     }
