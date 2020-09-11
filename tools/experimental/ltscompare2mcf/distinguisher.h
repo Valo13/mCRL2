@@ -667,44 +667,45 @@ template <class LTS_TYPE> class Distinguisher
 #endif // !NDEBUG
 
     /* Check if the two initial states are in the same block */
-    bool init1found = false;
-    bool init2found = false;
+    Block init1Block;
+    Block init2Block;
     for (Block B : Pr)
     {
       for (State s : B)
       {
         if (s == init1)
         {
-          init1found = true;
+          init1Block = B;
         }
         if (s == init2)
         {
-          init2found = true;
+          init2Block = B;
         }
       }
-      // if both are found in the same block, the two LTSs are equivalent
-      if (init1found && init2found)
+    }
+
+    // if both are found in the same block, the two LTSs are equivalent
+    if (init1Block == init2Block)
+    {
+      return true_();
+    }
+    // if one is in this block but the other isn't, the LTSs are not
+    //   equivalent
+    else
+    {
+      if (straightforward)
       {
-        return true_();
+        return blockFormulas.at(init1Block);
       }
-      // if one is in this block but the other isn't, the LTSs are not
-      //   equivalent
-      else if (init1found)
+      else
       {
-        if (straightforward)
+        if (branching)
         {
-          return blockFormulas.at(B);
+          return false_();
         }
         else
         {
-          if (branching)
-          {
-            return false_();
-          }
-          else
-          {
-            return delta(init1, init2);
-          }
+          return delta(init1, init2);
         }
       }
     }
