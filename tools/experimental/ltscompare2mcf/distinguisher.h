@@ -98,6 +98,13 @@ template <class LTS_TYPE> class Distinguisher
     }
   };
 
+  state_formula conjunction(std::set<state_formula> terms)
+  {
+    return utilities::detail::join<state_formula>(
+        terms.begin(), terms.end(),
+        [](state_formula a, state_formula b) { return and_(a, b); }, true_());
+  }
+
 #ifndef NDEBUG
   /**
    * @brief blockToString Creates a string representation of a block for
@@ -442,9 +449,8 @@ template <class LTS_TYPE> class Distinguisher
         //   sLp and sRp would be in the same set)
         Gamma.insert(delta(sLp, sRp));
       }
-      state_formula Phi = utilities::detail::join<state_formula>(
-          Gamma.begin(), Gamma.end(),
-          [](state_formula a, state_formula b) { return and_(a, b); }, true_());
+      state_formula Phi = conjunction(Gamma);
+
       // if Phi using this sLp is smaller than the up to now smallest found Phi,
       //   replace it
       size_traverser t;
@@ -458,36 +464,37 @@ template <class LTS_TYPE> class Distinguisher
     }
 
     // create the final formula <a>Phi
-    state_formula dPhi = may(createRegularFormula(a), smallestPhi);
+    state_formula aPhi = may(createRegularFormula(a), smallestPhi);
 
     /* With <a>Phi we distinguish sL from sR, but we want to distinguish s1 from
      *   s2, so we need to negate the formula in case sL == s2 */
     if (sL == s1)
     {
-      return dPhi;
+      return aPhi;
     }
     else
     {
-      return not_(dPhi);
+      return not_(aPhi);
     }
   }
 
   /**
    * @brief delta Create a state formula that distinguishes two given blocks for
-   *   the non-straightforward approach. The pseudocode is as follows:
+   *   the non-straightforward approach. The pseudocode for strong bisimulation
+   *   is as follows:
    *   delta(B1, B2)
    *     DB := deepest block in the block tree that is an ancestor of B1 and B2
    *     R := right child of DB
    *     a := action used to split DB
    *     B' := block used to split DB
-   *     Gamma := \emptyset
+   *     Gamma2 := \emptyset
    *     for PB \in r_\alpha(R)
-   *       Gamma := Gamma \cup \{delta(B', PB)\}
-   *     Phi = \bigwedge Gamma
+   *       Gamma2 := Gamma2 \cup \{delta(B', PPB)\}
+   *     Phi2 = \bigwedge Gamma2
    *     if B2 \subseteq R
-   *       return <a>Phi
+   *       return <a>Phi2
    *     else
-   *       return -<a>Phi
+   *       return -<a>Phi2
    * @param B1 The first of two blocks to distinguish
    * @param B2 The second of two blocks to distinguish
    * @return A state formula that is true on states in B1 but false on states in
@@ -533,26 +540,24 @@ template <class LTS_TYPE> class Distinguisher
 
     /* We can distinguish L with R if we can distinguish B' with every block in
      *   r_\alpha(R). */
-    std::set<state_formula> Gamma;
-    for (Block PB : ralpha.at(R))
+    std::set<state_formula> Gamma2;
+    for (Block PPB : ralpha.at(R))
     {
-      Gamma.insert(delta(Bp, PB));
+      Gamma2.insert(delta(Bp, PPB));
     }
-    state_formula Phi = utilities::detail::join<state_formula>(
-        Gamma.begin(), Gamma.end(),
-        [](state_formula a, state_formula b) { return and_(a, b); }, true_());
+    state_formula Phi2 = conjunction(Gamma2);
 
-    state_formula dPhi = may(createRegularFormula(a), Phi);
+    state_formula aPhi = may(createRegularFormula(a), Phi2);
 
-    /* with <a>Phi we distinguish L from R, but we want to distinguish B1 from
-     *   B2, so we need to negate the formula in case R contains B1 */
+    /* with aPhi we distinguish L from R, but we want to distinguish B1 from B2,
+     *   so we need to negate the formula in case R contains B1 */
     if (R.count(*B2.begin()) > 0)
     {
-      return dPhi;
+      return aPhi;
     }
     else
     {
-      return not_(dPhi);
+      return not_(aPhi);
     }
   }
 
