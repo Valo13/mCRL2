@@ -330,7 +330,9 @@ template <class LTS_TYPE> class Distinguisher
 
   /**
    * @brief untilFormula Creates a state formula that represents the until
-   *   operator phi1<a>phi2 from HMLU, namely mu X.phi1 && (<tau>X || <a>phi2)
+   *   operator phi1<a>phi2 from HMLU, namely
+   *     / phi2 || mu X.phi1 && (<tau>X || <a>phi2)  if a = \tau
+   *     \ mu X.phi1 && (<tau>X || <a>phi2)          else
    * @param phi1 The first state formula in the until operator
    * @param a The action in the until operator
    * @param phi2 The second state formula in the until operator
@@ -339,11 +341,17 @@ template <class LTS_TYPE> class Distinguisher
   state_formula untilFormula(state_formula phi1, Action a, state_formula phi2)
   {
     std::string var = "X" + std::to_string(freshVarCounter++);
-    return mu(var, {},
-              and_(phi1, or_(may(regular_formulas::regular_formula(
-                                     action_formulas::multi_action()),
-                                 variable(var, {})),
-                             may(createRegularFormula(a), phi2))));
+    state_formula until =
+        mu(var, {},
+           and_(phi1, or_(may(regular_formulas::regular_formula(
+                                  action_formulas::multi_action()),
+                              variable(var, {})),
+                          may(createRegularFormula(a), phi2))));
+    if (a == Action::tau_action())
+    {
+      until = or_(phi2, until);
+    }
+    return until;
   }
 
   /**
