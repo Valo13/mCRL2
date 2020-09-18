@@ -74,6 +74,13 @@ template <class LTS_TYPE> class Distinguisher
    * To be in line with Henri Korver's work, we assign this partition to B2 */
   std::map<Block, Partition> ralpha;
 
+  /* Corresponds to r_\tau^p in the work of Henri Korver
+   * Given a split B into B1 and B2 with action a, rtaup is the set of blocks
+   *   in the latest partition, excluding B, which can be reached from B2 with
+   *   one tau-step.
+   * To be in line with Henri Korver's work, we assign this partition to B2 */
+  std::map<Block, Partition> rtaup;
+
   /* The regular formula that describes any number of tau steps */
   regular_formulas::regular_formula tauStar = regular_formulas::trans_or_nil(
       regular_formulas::regular_formula(action_formulas::multi_action()));
@@ -503,6 +510,26 @@ template <class LTS_TYPE> class Distinguisher
    *       return <a>Phi2
    *     else
    *       return -<a>Phi2
+   *   The pseudocode for branching bisimulation is as follows:
+   *   delta(B1, B2)
+   *     DB := deepest block in the block tree that is an ancestor of B1 and B2
+   *     R := right child of DB
+   *     a := action used to split DB
+   *     B' := block used to split DB
+   *     Gamma1 := \emptyset
+   *     for PB \in r_\tau^p(R)
+   *       Gamma1 := Gamma1 \cup \{delta(DB, PPB)\}
+   *     Phi1 = \bigwedge Gamma1
+   *     Gamma2 := \emptyset
+   *     for PB \in r_\alpha(R)
+   *       Gamma2 := Gamma2 \cup \{delta(B', PPB)\}
+   *     Phi2 = \bigwedge Gamma2
+   *     if a = \tau
+   *       Phi2 := Phi2 \wedge delta(B', R)
+   *     if B2 \subseteq R
+   *       return Phi1<a>Phi2
+   *     else
+   *       return -Phi1<a>Phi2
    * @param B1 The first of two blocks to distinguish
    * @param B2 The second of two blocks to distinguish
    * @return A state formula that is true on states in B1 but false on states in
@@ -555,7 +582,35 @@ template <class LTS_TYPE> class Distinguisher
     }
     state_formula Phi2 = conjunction(Gamma2);
 
-    state_formula aPhi = may(createRegularFormula(a), Phi2);
+    state_formula aPhi;
+    if (branching)
+    {
+      /* In case of branching bisimulation, we additionally need to distinguish
+       *   B with every block in rtaup. This is to distinguish tau-paths that
+       *   precede an a-step into B' from other tau-paths. */
+      std::set<state_formula> Gamma1;
+      for (Block PPB : rtaup.at(R))
+      {
+        Gamma1.insert(delta(DB, PPB));
+      }
+      state_formula Phi1 = conjunction(Gamma1);
+
+      /* In case a = tau, we extend Phi2 by distinguishing B' with R' too. This
+       *   covers the case where a tau-step from L into R is mimicked in R by
+       *   doing nothing. */
+      if (a == Action::tau_action())
+      {
+        Phi2 = and_(Phi2, delta(Bp, R));
+      }
+
+      // the resulting formula is Phi1<a>Phi2
+      aPhi = untilFormula(Phi1, a, Phi2);
+    }
+    else
+    {
+      // the resulting formula is <a>Phi2
+      aPhi = may(createRegularFormula(a), Phi2);
+    }
 
     /* with aPhi we distinguish L from R, but we want to distinguish B1 from B2,
      *   so we need to negate the formula in case R contains B1 */
@@ -622,7 +677,8 @@ template <class LTS_TYPE> class Distinguisher
         branching(equivalence == lts_eq_branching_bisim),
         weak(equivalence == lts_eq_weak_bisim ||
              equivalence == lts_eq_weak_trace),
-        straightforward(straightforward), blocky_delta(blocky_delta)
+        straightforward(straightforward),
+        blocky_delta(blocky_delta || equivalence == lts_eq_branching_bisim)
   {
     // change equivalence problems to bisimulation problems where possible
     switch (equivalence)
@@ -779,11 +835,18 @@ template <class LTS_TYPE> class Distinguisher
                   if (blocky_delta)
                   {
                     ralpha[B2] = {};
+                    rtaup[B2] = {};
                     for (Block PB : Pi)
                     {
                       if (canMoveIntoBlockDirectly(B2, a, PB))
                       {
                         ralpha[B2].insert(PB);
+                      }
+                      if (branching && PB != B &&
+                          canMoveIntoBlockDirectly(B2, Action::tau_action(),
+                                                   PB))
+                      {
+                        rtaup[B2].insert(PB);
                       }
                     }
                   }
@@ -840,7 +903,7 @@ template <class LTS_TYPE> class Distinguisher
       {
         if (branching)
         {
-          return false_();
+          return delta(init1Block, init2Block);
         }
         else
         {
@@ -855,8 +918,6 @@ template <class LTS_TYPE> class Distinguisher
         }
       }
     }
-
-    return false_();
   }
 };
 
