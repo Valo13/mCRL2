@@ -52,6 +52,7 @@ template <class LTS_TYPE> class Distinguisher
   bool weak;
   bool straightforward;
   bool blocky_delta;
+  bool just_before;
 
   /* Used to prevent cycles for canMoveIntoBlockRec */
   std::set<State> visited;
@@ -336,29 +337,41 @@ template <class LTS_TYPE> class Distinguisher
   }
 
   /**
-   * @brief untilFormula Creates a state formula that represents the until
-   *   operator phi1<a>phi2 from HMLU, namely
-   *     / phi2 || mu X.phi1 && (<tau>X || <a>phi2)  if a = \tau
-   *     \ mu X.phi1 && (<tau>X || <a>phi2)          else
+   * @brief branchingModalFormula Creates a state formula phi1<a>phi2 that
+   *   represents the modal formula for logics that represent branching
+   *   bisimulation. By default this is the until operator from HMLU:
+   *     / phi2 || (mu X.phi1 && (<tau>X || <a>phi2))  if a = \tau
+   *     \ mu X.phi1 && (<tau>X || <a>phi2)            else
+   *   If --just_before is set, it is the just before operator instead:
+   *     / phi2 || (mu X.<tau>X || (phi1 && <a>phi2))  if a = \tau
+   *     \ mu X.<tau>X || (phi1 && <a>phi2)            else
    * @param phi1 The first state formula in the until operator
    * @param a The action in the until operator
    * @param phi2 The second state formula in the until operator
    * @return The state formula that represents the until operator in HMLU
    */
-  state_formula untilFormula(state_formula phi1, Action a, state_formula phi2)
+  state_formula branchingModalFormula(state_formula phi1, Action a,
+                                      state_formula phi2)
   {
     std::string var = "X" + std::to_string(freshVarCounter++);
-    state_formula until =
-        mu(var, {},
-           and_(phi1, or_(may(regular_formulas::regular_formula(
-                                  action_formulas::multi_action()),
-                              variable(var, {})),
-                          may(createRegularFormula(a), phi2))));
+    state_formula tauStep =
+        may(regular_formulas::regular_formula(action_formulas::multi_action()),
+            variable(var, {}));
+    state_formula lastStep = may(createRegularFormula(a), phi2);
+    state_formula modal;
+    if (just_before)
+    {
+      modal = mu(var, {}, or_(tauStep, and_(phi1, lastStep)));
+    }
+    else
+    {
+      modal = mu(var, {}, and_(phi1, or_(tauStep, lastStep)));
+    }
     if (a == Action::tau_action())
     {
-      until = or_(phi2, until);
+      modal = or_(phi2, modal);
     }
-    return until;
+    return modal;
   }
 
   /**
@@ -604,7 +617,7 @@ template <class LTS_TYPE> class Distinguisher
       }
 
       // the resulting formula is Phi1<a>Phi2
-      aPhi = untilFormula(Phi1, a, Phi2);
+      aPhi = branchingModalFormula(Phi1, a, Phi2);
     }
     else
     {
@@ -670,15 +683,21 @@ template <class LTS_TYPE> class Distinguisher
    * @param equivalence The equivalence used
    * @param straightforward Whether to use the "straightforward" approach, which
    *   is simpler but generates larger formulas
+   * @param blocky_delta Whether to use the delta function based on blocks or
+   *   states when doing the non-straightforward approach
+   * @param just_before Whether to use the just before semantics or the until
+   *   semantics to represent the modal operator for the logic that represents
+   *   branching bisimulation
    */
   Distinguisher(LTS_TYPE l1, LTS_TYPE l2, lts_equivalence equivalence,
-                bool straightforward, bool blocky_delta)
+                bool straightforward, bool blocky_delta, bool just_before)
       : equivalence(equivalence),
         branching(equivalence == lts_eq_branching_bisim),
         weak(equivalence == lts_eq_weak_bisim ||
              equivalence == lts_eq_weak_trace),
         straightforward(straightforward),
-        blocky_delta(blocky_delta || equivalence == lts_eq_branching_bisim)
+        blocky_delta(blocky_delta || equivalence == lts_eq_branching_bisim),
+        just_before(just_before)
   {
     // change equivalence problems to bisimulation problems where possible
     switch (equivalence)
@@ -802,8 +821,8 @@ template <class LTS_TYPE> class Distinguisher
                   state_formula stepFormula;
                   if (branching)
                   {
-                    stepFormula = untilFormula(blockFormulas.at(B), a,
-                                               blockFormulas.at(Bp));
+                    stepFormula = branchingModalFormula(blockFormulas.at(B), a,
+                                                        blockFormulas.at(Bp));
                   }
                   else
                   {

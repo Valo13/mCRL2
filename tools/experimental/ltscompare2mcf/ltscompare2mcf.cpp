@@ -32,6 +32,7 @@ class ltscompare2mcf_tool : public ltscompare2mcf_base
   lts_equivalence equivalence = lts_eq_none;
   bool straightforward;
   bool blocky_delta;
+  bool just_before;
 
   template <class LTS_TYPE> bool lts_compare(void)
   {
@@ -40,7 +41,7 @@ class ltscompare2mcf_tool : public ltscompare2mcf_base
     l2.load(lts2_name);
 
     distinguisher::Distinguisher<LTS_TYPE> distinguisher(
-        l1, l2, equivalence, straightforward, blocky_delta);
+        l1, l2, equivalence, straightforward, blocky_delta, just_before);
     state_formula f = distinguisher.distinguish();
     mCRL2log(info) << "Distinguishing formula: " << pp(f);
 
@@ -60,6 +61,12 @@ class ltscompare2mcf_tool : public ltscompare2mcf_base
                     "instead of states (like in Rance Cleaveland's work); only "
                     "has effect for the non-straightforward approach",
                     'b');
+    desc.add_option(
+        "just_before",
+        "use the semantics of the just before operator instead of the until "
+        "operator when representing the branching modal operator in the modal "
+        "mu-calculus",
+        'j');
     desc.add_option("equivalence",
                     make_enum_argument<lts_equivalence>("NAME)")
                         .add_value(lts_eq_none, true)
@@ -91,6 +98,7 @@ class ltscompare2mcf_tool : public ltscompare2mcf_base
 
     straightforward = parser.has_option("straightforward");
     blocky_delta = parser.has_option("blocky_delta");
+    just_before = parser.has_option("just_before");
   }
 
   public:
