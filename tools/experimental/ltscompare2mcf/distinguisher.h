@@ -823,16 +823,17 @@ template <class LTS_TYPE> class Distinguisher
                   {
                     stepFormula = branchingModalFormula(blockFormulas.at(B), a,
                                                         blockFormulas.at(Bp));
+                    blockFormulas[B1] = stepFormula;
+                    blockFormulas[B2] = not_(stepFormula);
                   }
                   else
                   {
                     stepFormula =
                         may(createRegularFormula(a), blockFormulas.at(Bp));
+                    blockFormulas[B1] = and_(blockFormulas.at(B), stepFormula);
+                    blockFormulas[B2] =
+                        and_(blockFormulas.at(B), not_(stepFormula));
                   }
-
-                  blockFormulas[B1] = and_(blockFormulas.at(B), stepFormula);
-                  blockFormulas[B2] =
-                      and_(blockFormulas.at(B), not_(stepFormula));
 
 #ifndef NDEBUG
                   std::cout << "Block B1 = " << blockToString(B1)
