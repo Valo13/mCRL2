@@ -34,8 +34,13 @@ struct per_summand_information
 {
   per_component_information left;
   per_component_information right;
-  std::set<data::variable> synchronized;
+  std::set<data::variable> synchronised;
   std::size_t index;
+};
+
+struct per_variable_information
+{
+  bool occurs_unbounded;
 };
 
 /// \returns True iff each assignment is the identity (lhs := lhs) so only trivial updates.
@@ -63,6 +68,7 @@ std::vector<per_summand_information> static_analysis(
   bool enable_split_action)
 {
   std::vector<per_summand_information> results(summands.size());
+  std::map<variable, per_variable_information> variable_info;
 
   for (std::size_t index = 0; index < summands.size(); ++index)
   {
@@ -126,14 +132,12 @@ std::vector<per_summand_information> static_analysis(
       {
         result.left.condition.expression = summand.condition();
         result.left.action = summand.multi_action().actions();
-        mCRL2log(log::verbose) << "Summand " << index << " is left independent\n";
       }
 
       if (result.right.is_independent)
       {
         result.right.condition.expression = summand.condition();
         result.right.action = summand.multi_action().actions();
-        mCRL2log(log::verbose) << "Summand " << index << " is right independent\n";
       }
     }
 
@@ -179,31 +183,31 @@ std::vector<per_summand_information> static_analysis(
       /// Determine the synchronization vector.
 
       // Compute the synchronization vector (the values of h without functions)
-      result.synchronized.insert(left_update_dependencies.begin(), left_update_dependencies.end());
-      result.synchronized.insert(left_action_dependencies.begin(), left_action_dependencies.end());
+      result.synchronised.insert(left_update_dependencies.begin(), left_update_dependencies.end());
+      result.synchronised.insert(left_action_dependencies.begin(), left_action_dependencies.end());
 
-      std::set<data::variable> right_synchronized;
-      right_synchronized.insert(right_update_dependencies.begin(), right_update_dependencies.end());
-      right_synchronized.insert(right_action_dependencies.begin(), right_action_dependencies.end());
+      std::set<data::variable> right_synchronised;
+      right_synchronised.insert(right_update_dependencies.begin(), right_update_dependencies.end());
+      right_synchronised.insert(right_action_dependencies.begin(), right_action_dependencies.end());
 
       // Remove dependencies on our own parameter because these are not required.
       for (const data::variable& var : left_parameters)
       {
-        result.synchronized.erase(var);
+        result.synchronised.erase(var);
       }
 
       for (const data::variable& var : right_parameters)
       {
-        right_synchronized.erase(var);
+        right_synchronised.erase(var);
       }
 
       /// Handle the condition expression.
       if (enable_split_condition)
       {
         // Merge the dependencies for the splitting procedure.
-        std::set<data::variable> synchronized = result.synchronized;
-        synchronized.insert(right_synchronized.begin(), right_synchronized.end());
-        std::tie(result.left.condition, result.right.condition) = split_condition(summand.condition(), left_parameters, right_parameters, summand.summation_variables(), synchronized);
+        std::set<data::variable> synchronised = result.synchronised;
+        synchronised.insert(right_synchronised.begin(), right_synchronised.end());
+        std::tie(result.left.condition, result.right.condition) = split_condition(summand.condition(), left_parameters, right_parameters, summand.summation_variables(), synchronised);
       }
       else
       {
@@ -229,45 +233,126 @@ std::vector<per_summand_information> static_analysis(
       }
 
       // Update the synchronization vector with the condition dependencies.
-      result.synchronized.insert(left_condition_dependencies.begin(), left_condition_dependencies.end());
-      right_synchronized.insert(right_condition_dependencies.begin(), right_condition_dependencies.end());
+      result.synchronised.insert(left_condition_dependencies.begin(), left_condition_dependencies.end());
+      right_synchronised.insert(right_condition_dependencies.begin(), right_condition_dependencies.end());
 
       // Remove dependencies on our own parameter because these are not required.
       for (const data::variable& var : left_parameters)
       {
-        result.synchronized.erase(var);
+        result.synchronised.erase(var);
       }
 
       for (const data::variable& var : right_parameters)
       {
-        right_synchronized.erase(var);
+        right_synchronised.erase(var);
       }
 
       // Only keep summation variables in the synchronization if they occur in both action or update expressions.
       for (const data::variable& var : summand.summation_variables())
       {
-        if (std::find(result.synchronized.begin(), result.synchronized.end(), var) == result.synchronized.end())
+        if (std::find(result.synchronised.begin(), result.synchronised.end(), var) == result.synchronised.end())
         {
-          right_synchronized.erase(var);
+          right_synchronised.erase(var);
         }
 
-        if (std::find(right_synchronized.begin(), right_synchronized.end(), var) == right_synchronized.end())
+        if (std::find(right_synchronised.begin(), right_synchronised.end(), var) == right_synchronised.end())
         {
-          result.synchronized.erase(var);
+          result.synchronised.erase(var);
         }
       }
 
-      result.synchronized.insert(right_synchronized.begin(), right_synchronized.end());
+      // Find problematic parameters.
+      for (const data::variable& var : result.synchronised)
+      {
+        if (std::find(left_condition_dependencies.begin(), left_condition_dependencies.end(), var) == left_condition_dependencies.end())
+        {
+          variable_info[var].occurs_unbounded = true;
+        }
+      }
+
+      for (const data::variable& var : right_synchronised)
+      {
+        if (std::find(right_condition_dependencies.begin(), right_condition_dependencies.end(), var) == right_condition_dependencies.end())
+        {
+          variable_info[var].occurs_unbounded = true;
+        }
+      }
+
+      result.synchronised.insert(right_synchronised.begin(), right_synchronised.end());
 
       mCRL2log(log::debug) << "Synchronisation vector: ";
-      print_names(log::debug, result.synchronized);
+      print_names(log::debug, result.synchronised);
       mCRL2log(log::debug) << "\n";
+    }
+  }
+
+  // Track the number of independent summands, and the number of times that each parameter occurs in a synchronisation vector.
+  std::size_t nof_left_independent = 0;
+  std::size_t nof_right_independent = 0;
+  std::map<variable, std::size_t> synchronised_count;
+
+  for (const variable& var : left_parameters)
+  {
+    synchronised_count[var] = 0;
+  }  
+  
+  for (const variable& var : right_parameters)
+  {
+    synchronised_count[var] = 0;
+  }
+
+  // Count the number of times a variable occurs in the synchronisation vector (either explicit or implicitly).
+  for (const per_summand_information& info : results)
+  {
+    nof_left_independent += info.left.is_independent;
+    nof_right_independent += info.right.is_independent;
+
+    for (const variable& var : info.synchronised)
+    {
+      synchronised_count[var] += 1;
+    }
+
+    for (const data_expression& expr : info.left.condition.implicit)
+    {
+      for (const variable& var : data::find_free_variables(expr))
+      {
+        synchronised_count[var] += 1;
+      }
+    }    
+    
+    for (const data_expression& expr : info.right.condition.implicit)
+    {
+      for (const variable& var : data::find_free_variables(expr))
+      {
+        synchronised_count[var] += 1;
+      }
+    }
+  }
+
+  // Present the information to the user.
+  mCRL2log(log::verbose) << "There are " << nof_left_independent << " left independent, and " << nof_right_independent << " right independent summands.\n";
+  mCRL2log(log::verbose) << "Parameters synchronised more than once:\n";
+
+  for (const auto& [var, count] : synchronised_count)
+  {
+    if (count > 0)
+    {
+      mCRL2log(log::verbose) << "Variable " << var.name() << " occurs " << count << " times.\n";
+    }
+  }
+
+  for (const auto& [var, info] : variable_info)
+  {
+    if (info.occurs_unbounded)
+    {
+       mCRL2log(log::verbose) << "Parameter " << var.name() << " occurs unbounded.\n";
     }
   }
 
   return results;
 }
 
+/// Determine whether two summands have (syntactically) the same condition, action and assignment expressions.
 bool can_be_merged(
   const lps::stochastic_action_summand& summand,
   const lps::stochastic_action_summand& other_summand,
@@ -328,13 +413,13 @@ void merge_summands(const lps::stochastic_action_summand_vector& summands,
 
     for (std::size_t j = 0; j < summands.size(); ++j)
     {
-      // The properties should be symmetrical so only only these comparisons are useful.
-      if (i < j)
+      // The properties should be symmetrical so only only these comparisons are useful. Furthermore, only check if this summand is not already merged.
+      if (i < j && info.index == i)
       {
         const lps::stochastic_action_summand& other_summand = summands[j];
         per_summand_information& other_info = results[j];
 
-        if (info.synchronized == other_info.synchronized
+        if (info.synchronised == other_info.synchronised
           && !info.left.is_independent
           && !info.right.is_independent
           && !other_info.left.is_independent
@@ -357,12 +442,11 @@ void merge_summands(const lps::stochastic_action_summand_vector& summands,
   }
 }
 
-
 /// \brief Construct the summand for the given parameters.
 lps::stochastic_action_summand create_summand(
   const lps::stochastic_action_summand& summand,
   const per_component_information& info,
-  const std::set<data::variable>& synchronized,
+  const std::set<data::variable>& synchronised,
   const process::action_label& sync,
   const data::variable_list& parameters, 
   const data::variable_list& other_parameters,
@@ -374,7 +458,7 @@ lps::stochastic_action_summand create_summand(
 
   // The action with possible synchronisation or tags.
   data::data_expression_list sync_values;
-  for (const data::variable& dependency : synchronized)
+  for (const data::variable& dependency : synchronised)
   {
     sync_values.push_front(data::data_expression(dependency));
   }
@@ -385,14 +469,16 @@ lps::stochastic_action_summand create_summand(
   }
 
   lps::multi_action action(info.action);
+  process::action_list al=action.actions();
   if (info.is_independent)
   {
-    action.actions().push_front(process::action(tag));
+    al.push_front(process::action(tag));
   }
   else
   {
-    action.actions().push_front(process::action(sync, sync_values));
+    al.push_front(process::action(sync, sync_values));
   }
+  action = multi_action(al,action.time());
 
   // The update expression.
   data::assignment_list assignments = project(summand.assignments(), parameters);
@@ -423,7 +509,7 @@ lps::stochastic_action_summand create_summand(
   // Add a sum variable for every parameter of the other process that we depend on based on the synchronisation.
   for (const data::variable& variable : other_parameters)
   {
-    if (synchronized.count(variable) > 0 && std::find(parameters.begin(), parameters.end(), variable) == parameters.end())
+    if (synchronised.count(variable) > 0 && std::find(parameters.begin(), parameters.end(), variable) == parameters.end())
     {
       sum_variables.push_front(variable);
     }
@@ -465,6 +551,7 @@ std::pair<lps::stochastic_specification, lps::stochastic_specification> mcrl2::c
   const data::variable_list& right_parameters,
   const std::list<std::size_t>& indices,
   const data::data_expression& invariant,
+  const std::string& action_prefix,
   bool split_condition,
   bool split_action,
   bool merge_heuristic,
@@ -480,12 +567,13 @@ std::pair<lps::stochastic_specification, lps::stochastic_specification> mcrl2::c
   }
 
   // The 'tag' action is used to tag independent actions.
-  process::action_label tag_label("tag", {});
+  process::action_label tag_label(std::string(action_prefix) += "tag", {});
 
   // The list of action labels that are added to the specification.
   std::vector<process::action_label> labels;
   labels.push_back(tag_label);
 
+  // Perform the static analysis.
   std::vector<per_summand_information> results = static_analysis(process.action_summands(), left_parameters, right_parameters, indices, split_condition, split_action);
 
   // Create actions to be used within the summands.
@@ -508,7 +596,7 @@ std::pair<lps::stochastic_specification, lps::stochastic_specification> mcrl2::c
     // Create the actsync(p, e_i) action for our dependencies on p and e_i
     data::sort_expression_list sorts;
 
-    for (const data::variable& dependency : result.synchronized)
+    for (const data::variable& dependency : result.synchronised)
     {
       sorts.push_front(dependency.sort());
     }
@@ -534,7 +622,10 @@ std::pair<lps::stochastic_specification, lps::stochastic_specification> mcrl2::c
     // Add summand to the left specification.
     if (!result.right.is_independent || result.left.is_independent)
     {
-      process::action_label left_sync_label(std::string("syncleft_") += std::to_string(result.index), sorts);
+      std::string sync_name(action_prefix);
+      sync_name += std::string("syncleft_") += std::to_string(result.index);
+
+      process::action_label left_sync_label(sync_name, sorts);
       if (!result.left.is_independent && result.index == index)
       {
         // Add this synchronization label when the sync action is used and we are the summand with its own index (and not merged).
@@ -543,7 +634,7 @@ std::pair<lps::stochastic_specification, lps::stochastic_specification> mcrl2::c
 
       left_summands.push_back(create_summand(summand,
         result.left,
-        result.synchronized,
+        result.synchronised,
         left_sync_label,
         left_parameters,
         right_parameters,
@@ -554,7 +645,10 @@ std::pair<lps::stochastic_specification, lps::stochastic_specification> mcrl2::c
     // Add summand to the right specification.
     if (!result.left.is_independent || result.right.is_independent)
     {
-      process::action_label right_sync_label(std::string("syncright_") += std::to_string(result.index), sorts);      
+      std::string sync_name(action_prefix);
+      sync_name += std::string("syncright_") += std::to_string(result.index);
+
+      process::action_label right_sync_label(sync_name, sorts);      
       if (!result.right.is_independent && result.index == index)
       {
         labels.push_back(right_sync_label);
@@ -562,7 +656,7 @@ std::pair<lps::stochastic_specification, lps::stochastic_specification> mcrl2::c
 
       right_summands.push_back(create_summand(summand,
         result.right,
-        result.synchronized,
+        result.synchronised,
         right_sync_label,
         right_parameters,
         left_parameters,
@@ -575,6 +669,14 @@ std::pair<lps::stochastic_specification, lps::stochastic_specification> mcrl2::c
   auto action_labels = spec.action_labels();
   for (const process::action_label& label : labels)
   {
+    // Abort when any of these labels already exists.
+    if (std::find(action_labels.begin(), action_labels.end(), label) != action_labels.end())
+    {
+      mCRL2log(log::error) << "The action label " << label << " is already present in the specification.\n";
+      mCRL2log(log::error) << "This means that we cannot ensure that this composition is valid.\n";
+      throw mcrl2::runtime_error("Aborted decomposition due to an error.");
+    }
+
     action_labels.push_front(label);
   }
 

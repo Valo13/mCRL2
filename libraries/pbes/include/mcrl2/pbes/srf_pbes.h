@@ -158,6 +158,11 @@ class srf_equation
       return m_summands;
     }
 
+    bool& is_conjunctive()
+    {
+      return m_conjunctive;
+    }
+
     bool is_conjunctive() const
     {
       return m_conjunctive;
@@ -172,6 +177,18 @@ class srf_equation
       }
       pbes_expression rhs = m_conjunctive ? join_and(v.begin(), v.end()) : join_or(v.begin(), v.end());
       return pbes_equation(m_sigma, m_variable, rhs);
+    }
+
+    void make_total(const srf_summand& true_summand, const srf_summand& false_summand)
+    {
+      if (m_conjunctive)
+      {
+        m_summands.push_back(true_summand);
+      }
+      else
+      {
+        m_summands.push_back(false_summand);
+      }
     }
 };
 
@@ -582,6 +599,11 @@ class srf_pbes
       return m_dataspec;
     }
 
+    data::data_specification& data()
+    {
+      return m_dataspec;
+    }
+
     pbes to_pbes() const
     {
       std::vector<pbes_equation> v;
@@ -590,6 +612,19 @@ class srf_pbes
         v.push_back(eqn.to_pbes());
       }
       return pbes(m_dataspec, v, m_initial_state);
+    }
+
+    // Adds extra clauses to the equations to enforce that the PBES is in TSRF format
+    // Precondition: the last two equations must be the equations corresponding to false and true
+    void make_total()
+    {
+      std::size_t N = m_equations.size();
+      const srf_summand& false_summand = m_equations[N-2].summands().front();
+      const srf_summand& true_summand = m_equations[N-1].summands().front();
+      for (std::size_t i = 0; i < N - 2; i++)
+      {
+        m_equations[i].make_total(true_summand, false_summand);
+      }
     }
 };
 
@@ -606,7 +641,7 @@ srf_pbes pbes2srf(const pbes& p)
 
   core::identifier_string X_false = id_generator("X_false");
   core::identifier_string X_true = id_generator("X_true");
-  pbes_equation eqn_false(fixpoint_symbol::mu(), propositional_variable(X_false, {}), propositional_variable_instantiation(X_false, {}));
+  pbes_equation eqn_false(fixpoint_symbol::mu(), propositional_variable(X_false, {}), or_(data::sort_bool::false_(), propositional_variable_instantiation(X_false, {})));
   pbes_equation eqn_true(fixpoint_symbol::nu(), propositional_variable(X_true, {}), propositional_variable_instantiation(X_true, {}));
 
   const auto& p_equations = p.equations();

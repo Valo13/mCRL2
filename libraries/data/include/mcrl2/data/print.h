@@ -40,7 +40,16 @@ bool is_numeric_cast(const data_expression& x)
           ;
 }
 
-inline
+inline bool look_through_numeric_casts(const data_expression& x, std::function<bool(const data_expression&)> f)
+{
+  if (is_numeric_cast(x))
+  {
+    return look_through_numeric_casts(atermpp::down_cast<application>(x)[0], f);
+  }
+  return f(x);
+}
+
+/* inline
 data_expression remove_numeric_casts(data_expression x)
 {
   while (is_numeric_cast(x))
@@ -48,48 +57,66 @@ data_expression remove_numeric_casts(data_expression x)
     x = *atermpp::down_cast<application>(x).begin();
   }
   return x;
-}
+} */
 
 inline
 bool is_plus(const application& x)
 {
-  return sort_int::is_plus_application(remove_numeric_casts(x)) ||
-         sort_nat::is_plus_application(remove_numeric_casts(x)) ||
-         sort_pos::is_plus_application(remove_numeric_casts(x)) ||
-         sort_real::is_plus_application(remove_numeric_casts(x));
+  return look_through_numeric_casts(
+                x,
+                [](const data_expression& x)
+                   { return sort_int::is_plus_application(x) ||
+                            sort_nat::is_plus_application(x) ||
+                            sort_pos::is_plus_application(x) ||
+                            sort_real::is_plus_application(x); });
 }
 
 inline
 bool is_minus(const application& x)
 {
-  return sort_int::is_minus_application(remove_numeric_casts(x)) ||
-         sort_real::is_minus_application(remove_numeric_casts(x));
+  return look_through_numeric_casts(
+                x,
+                [](const data_expression& x)
+                   { return sort_int::is_minus_application(x) ||
+                            sort_real::is_minus_application(x); });
 }
 
 inline
 bool is_mod(const application& x)
 {
-  return sort_int::is_mod_application(remove_numeric_casts(x)) ||
-         sort_nat::is_mod_application(remove_numeric_casts(x));
+  return look_through_numeric_casts(
+                x,
+                [](const data_expression& x)
+                   { return sort_int::is_mod_application(x) ||
+                            sort_nat::is_mod_application(x); });
 }
 
 inline
 bool is_div(const application& x)
 {
-  return sort_int::is_div_application(remove_numeric_casts(x)) ||
-         sort_nat::is_div_application(remove_numeric_casts(x));
+  return look_through_numeric_casts(
+                x,
+                [](const data_expression& x)
+                   { return sort_int::is_div_application(x) ||
+                            sort_nat::is_div_application(x); });
 }
 
 inline
 bool is_divmod(const application& x)
 {
-  return sort_nat::is_divmod_application(remove_numeric_casts(x));
+  return look_through_numeric_casts(
+                x,
+                [](const data_expression& x)
+                   { return sort_nat::is_divmod_application(x); });
 }
 
 inline
 bool is_divides(const application& x)
 {
-  return sort_real::is_divides_application(remove_numeric_casts(x));
+  return look_through_numeric_casts(
+                x,
+                [](const data_expression& x)
+                   { return sort_real::is_divides_application(x); });
 }
 
 inline
@@ -179,7 +206,10 @@ bool is_in(const application& x)
 inline
 bool is_times(const application& x)
 {
-  return sort_int::is_times_application(remove_numeric_casts(x));
+  return look_through_numeric_casts(
+                x,
+                [](const data_expression& x)
+                   { return sort_int::is_times_application(x); });
 }
 
 inline
@@ -324,7 +354,7 @@ int precedence(const application& x)
   {
     return 12;
   }
-  else if (is_function_update_application(x))
+  else if (is_function_update_application(x) || is_function_update_stable_application(x))
   {
     return 13;
   }
@@ -435,12 +465,12 @@ struct printer: public data::add_traverser_sort_expressions<core::detail::printe
       (name == data::sort_bool::implies_name())      ||
       (name == data::sort_bool::and_name())          ||
       (name == data::sort_bool::or_name())           ||
-      (name == data::detail::equal_symbol())         ||
-      (name == data::detail::not_equal_symbol())     ||
-      (name == data::detail::less_symbol())          ||
-      (name == data::detail::less_equal_symbol())    ||
-      (name == data::detail::greater_symbol())       ||
-      (name == data::detail::greater_equal_symbol()) ||
+      data::detail::equal_symbol::is_symbol(name)    ||
+      data::detail::not_equal_symbol::is_symbol(name)     ||
+      data::detail::less_symbol::is_symbol(name)          ||
+      data::detail::less_equal_symbol::is_symbol(name)    ||
+      data::detail::greater_symbol::is_symbol(name)       ||
+      data::detail::greater_equal_symbol::is_symbol(name) ||
       (name == data::sort_list::in_name())           ||
       (name == data::sort_list::cons_name())         ||
       (name == data::sort_list::snoc_name())         ||
@@ -1026,9 +1056,9 @@ struct printer: public data::add_traverser_sort_expressions<core::detail::printe
       derived().print("!");
       derived().apply(sort_set::arg3(x));
     }
-    else
+    else if (is_function_sort(sort_set::arg1(x).sort()))
     {
-      sort_expression s = function_sort(sort_set::arg1(x).sort()).domain().front();
+      const sort_expression& s = atermpp::down_cast<function_sort>(sort_set::arg1(x).sort()).domain().front();
       core::identifier_string name = generate_identifier("x", x);
       variable var(name, s);
       data_expression body = sort_bool::and_(sort_bool::not_(g(var)), sort_set::in(s, var, sort_set::arg3(x)));
@@ -1037,6 +1067,13 @@ struct printer: public data::add_traverser_sort_expressions<core::detail::printe
       derived().print(" | ");
       derived().apply(body);
       derived().print(" }");
+    }
+    else 
+    {
+      // In this case the term is not well formed, for instance because it contains a "Rewritten@@term" function.
+      // We print the residue as an aterm. 
+      derived().print(pp(atermpp::aterm(x)));
+      return;
     }
 
     // print operator
@@ -1991,7 +2028,7 @@ struct printer: public data::add_traverser_sort_expressions<core::detail::printe
     //-------------------------------------------------------------------//
     //                            function update
     //-------------------------------------------------------------------//
-    else if (is_function_update_application(x))
+    else if (is_function_update_application(x) || is_function_update_stable_application(x))
     {
       data_expression x1 = data::arg1(x);
       data_expression x2 = data::arg2(x);
@@ -2230,7 +2267,6 @@ struct printer: public data::add_traverser_sort_expressions<core::detail::printe
   void apply(const data::abstraction& x)
   {
     derived().enter(x);
-    data::abstraction result;
     if (data::is_forall(x))
     {
       derived().apply(atermpp::down_cast<data::forall>(x));

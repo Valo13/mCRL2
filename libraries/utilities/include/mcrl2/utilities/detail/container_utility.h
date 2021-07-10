@@ -6,18 +6,17 @@
 // (See accompanying file LICENSE_1_0.txt or copy at
 // http://www.boost.org/LICENSE_1_0.txt)
 //
-/// \file mcrl2/utilities/detail/container_utility.h
-/// \brief add your file description here.
 
 #ifndef MCRL2_UTILITIES_DETAIL_CONTAINER_UTILITY_H
 #define MCRL2_UTILITIES_DETAIL_CONTAINER_UTILITY_H
 
-#include "mcrl2/utilities/exception.h"
 #include <algorithm>
 #include <iterator>
+#include <vector>
 #include <map>
 #include <set>
 #include <unordered_set>
+#include "mcrl2/utilities/exception.h"
 
 namespace mcrl2 {
 
@@ -134,11 +133,14 @@ void remove_if(ContainerT& items, const PredicateT& predicate)
 {
   for (auto it = items.begin(); it != items.end();)
   {
-	if (predicate(*it))
-	{
-	  it = items.erase(it);
-	}
-	else ++it;
+    if (predicate(*it))
+    {
+      it = items.erase(it);
+    }
+    else
+    {
+      ++it;
+    }
   }
 }
 
@@ -214,6 +216,19 @@ template <typename T>
 bool set_includes(const std::set<T>& x, const std::set<T>& y)
 {
   return std::includes(x.begin(), x.end(), y.begin(), y.end());
+}
+
+
+template <typename T>
+std::vector<T> as_vector(const std::set<T>& x)
+{
+  return std::vector<T>(x.begin(), x.end());
+}
+
+template <typename T>
+std::set<T> as_set(const std::vector<T>& x)
+{
+  return std::set<T>(x.begin(), x.end());
 }
 
 } // namespace detail

@@ -39,7 +39,7 @@ AddEditPropertyDialog::AddEditPropertyDialog(bool add,
   }
 
   setWindowTitle(windowTitle);
-  setWindowFlags(Qt::Window);
+  setWindowFlags(Qt::Dialog);
 
   ui->formulaTextField->setPurpose(false);
   ui->initTextField1->setPurpose(true);
@@ -59,7 +59,7 @@ AddEditPropertyDialog::AddEditPropertyDialog(bool add,
           ui->tabWidget->widget(0), SLOT(setWindowModified(bool)));
   connect(ui->initTextField1, SIGNAL(textChanged()), this,
           SLOT(setEquivalenceTabToModified()));
-  connect(ui->formulaTextField, SIGNAL(currentIndexChanged(int)), this,
+  connect(ui->equivalenceComboBox, SIGNAL(currentIndexChanged(int)), this,
           SLOT(setEquivalenceTabToModified()));
   connect(ui->initTextField2, SIGNAL(textChanged()), this,
           SLOT(setEquivalenceTabToModified()));
@@ -103,6 +103,7 @@ void AddEditPropertyDialog::activateDialog(const Property& property)
   {
     activateWindow();
     setFocus();
+    raise(); // for MacOS
   }
   else
   {

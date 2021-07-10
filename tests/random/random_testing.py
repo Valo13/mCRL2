@@ -34,7 +34,7 @@ class RandomTest(YmlTest):
 
     # create input files for the random test, and add the filenames to self.inputfiles
     def create_inputfiles(self, runpath = '.'):
-        raise NotImplemented
+        raise NotImplementedError
 
     # removes input files that are in the runpath directory
     def remove_inputfiles(self, runpath = '.'):
@@ -291,6 +291,10 @@ class PbessymbolicbisimTest(PbesTest):
     def __init__(self, name, settings):
         super(PbessymbolicbisimTest, self).__init__(name, ymlfile('pbessymbolicbisim'), settings)
 
+class PbessolvesymbolicTest(PbesTest):
+    def __init__(self, name, settings):
+        super(PbessolvesymbolicTest, self).__init__(name, ymlfile('pbessolvesymbolic'), settings)
+
 class Pbes2boolTest(PbesTest):
     def __init__(self, name, settings):
         super(Pbes2boolTest, self).__init__(name, ymlfile('pbessolve'), settings)
@@ -425,7 +429,10 @@ available_tests = {
     'bessolve'                                    : lambda name, settings: BessolveTest(name, settings)                                                ,
     #'stochastic-ltscompare'                      : lambda name, settings: StochasticLtscompareTest(name, settings)                                     ,
 }
-#if os.name != 'nt':
+
+# These test do not work on Windows due to dependencies.
+if os.name != 'nt':
+    available_tests.update({'pbessolvesymbolic' : lambda name, settings: PbessolvesymbolicTest(name, settings) })
 #    available_tests.update({ 'pbesbddsolve' : lambda name, settings: PbesbddsolveTest(name, settings) })
 
 def print_names(tests):

@@ -105,7 +105,7 @@ class state_variable_name_clash_resolver: public state_formulas::state_formula_b
     }
 
     // Rename variable
-    state_formula operator()(const variable& x)
+    state_formula apply(const variable& x)
     {
       return variable(m_names[x.name()].back(), x.arguments());
     }
@@ -238,6 +238,34 @@ class state_formula_data_variable_name_clash_resolver: public state_formulas::da
         insert(v);
       }
       state_formula result = exists(apply_variables(x.variables()), apply(x.body()));
+      for (const data::variable& v: x.variables())
+      {
+        erase(v);
+      }
+      return result;
+    }
+
+    action_formulas::action_formula apply(const action_formulas::forall& x)
+    {
+      for (const data::variable& v: x.variables())
+      {
+        insert(v);
+      }
+      action_formulas::action_formula result = action_formulas::forall(apply_variables(x.variables()), apply(x.body()));
+      for (const data::variable& v: x.variables())
+      {
+        erase(v);
+      }
+      return result;
+    }
+
+    action_formulas::action_formula apply(const action_formulas::exists& x)
+    {
+      for (const data::variable& v: x.variables())
+      {
+        insert(v);
+      }
+      action_formulas::action_formula result = action_formulas::exists(apply_variables(x.variables()), apply(x.body()));
       for (const data::variable& v: x.variables())
       {
         erase(v);

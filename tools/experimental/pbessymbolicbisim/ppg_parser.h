@@ -61,7 +61,7 @@ public:
     pbes_expression expr = e;
     if(is_exists(expr) || is_forall(expr))
     {
-      m_quantification_domain = accessors::var(e);
+      m_quantification_domain = accessors::var(expr);
       expr = accessors::arg(expr);
     }
     if(is_or(expr))
@@ -101,6 +101,15 @@ public:
     else
     {
       m_condition = data::sort_bool::true_();
+    }
+    // Quantifier may occur just before predicate variable instance due to use
+    // of quantifier-inside rewriter.
+    if(is_exists(expr) || is_forall(expr))
+    {
+      for(const data::variable& v: accessors::var(expr)) {
+        m_quantification_domain.push_front(v);
+      }
+      expr = accessors::arg(expr);
     }
     assert(is_propositional_variable_instantiation(expr));
     m_new_state = atermpp::down_cast<propositional_variable_instantiation>(expr);

@@ -276,7 +276,7 @@ static size_t table_min = 0, table_max = 0, cache_min = 0, cache_max = 0;
 static int
 is_power_of_two(size_t size)
 {
-    return __builtin_popcount(size) == 1 ? 1 : 0;
+    return __builtin_popcountll(size) == 1 ? 1 : 0;
 }
 
 void
@@ -306,8 +306,8 @@ sylvan_set_sizes(size_t min_tablesize, size_t max_tablesize, size_t min_cachesiz
 void
 sylvan_set_limits(size_t memorycap, int table_ratio, int initial_ratio)
 {
-    if (table_ratio > 10 && table_ratio < 10) {
-        fprintf(stderr, "sylvan_set_limits: table_ratio unreasonable (between -10 and 10)\n");
+    if (table_ratio < -10 || table_ratio > 10) {
+        fprintf(stderr, "sylvan_set_limits: table_ratio unreasonable (should be between -10 and 10)\n");
         exit(1);
     }
 

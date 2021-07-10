@@ -11,7 +11,10 @@
 #define MCRL2_SPLIT_CONDITION_H_
 
 #include "mcrl2/data/data_expression.h"
+#include "mcrl2/data/standard_utility.h"
 #include "lpscleave_utility.h"
+
+#include <queue>
 
 using namespace mcrl2;
 
@@ -64,36 +67,6 @@ std::set<data::data_expression> compute_clauses(const std::list<data::data_expre
   return result;
 }
 
-/// \brief Split a conjunctive expression into a set of clauses.
-std::list<data::data_expression> split_clauses(const data::data_expression& condition)
-{
-  std::list<data::data_expression> clauses;
-  data::data_expression lhs = condition;
-  do
-  {
-    if (data::sort_bool::is_and_application(lhs))
-    {
-      const auto& application = static_cast<data::application>(lhs);
-      clauses.push_front(application[1]);
-
-      // Consider the next left hand side.
-      lhs = application[0];
-    }
-
-    if (!data::sort_bool::is_and_application(lhs))
-    {
-      clauses.push_front(lhs);
-    }
-  }
-  while (data::sort_bool::is_and_application(lhs));
-
-  mCRL2log(log::debug) << "Found clauses ";
-  print_elements(log::debug, clauses);
-  mCRL2log(log::debug) << "\n";
-
-  return clauses;
-}
-
 /// \brief Stores the information about the conditions.
 struct cleave_condition
 {
@@ -114,7 +87,7 @@ std::pair<cleave_condition, cleave_condition> split_condition(
   mCRL2log(log::debug) << "Splitting condition " << condition << "...\n";
 
   // First of all consider each clause in a conjunctive form separately.
-  std::list<data::data_expression> clauses = split_clauses(condition);
+  std::list<data::data_expression> clauses = split_conjunction(condition);
 
   // The resulting conditions and dependencies.
   cleave_condition left_condition;
@@ -192,7 +165,7 @@ std::pair<cleave_condition, cleave_condition> split_condition(
   left_condition.expression = make_conjuntions(left_clauses);
   right_condition.expression = make_conjuntions(right_clauses);
 
-  mCRL2log(log::verbose) << "Split condition into " << left_condition.expression << ", and " << right_condition.expression << "\n";
+  mCRL2log(log::debug) << "Split condition into " << left_condition.expression << ", and " << right_condition.expression << "\n";
   return std::make_pair(left_condition, right_condition);
 }
 

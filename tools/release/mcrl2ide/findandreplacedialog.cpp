@@ -16,7 +16,7 @@ FindAndReplaceDialog::FindAndReplaceDialog(
 {
   ui->setupUi(this);
 
-  setWindowFlags(Qt::Window);
+  setWindowFlags(Qt::Dialog);
 
   connect(ui->textToFind, SIGNAL(textChanged(QString)), this,
           SLOT(setFindEnabled()));
@@ -43,6 +43,27 @@ void FindAndReplaceDialog::showMessage(const QString& message, bool error)
   ui->infoLabel->setText(message);
 }
 
+void FindAndReplaceDialog::resetFocus()
+{
+  ui->textToFind->setFocus();
+  QString selection = codeEditor->textCursor().selectedText();
+  if (!selection.isEmpty())
+  {
+    ui->textToFind->setText(selection);
+  }
+
+  if (isVisible())
+  {
+    setFocus();
+    activateWindow();
+    raise(); // for MacOS
+  }
+  else
+  {
+    show();
+  }
+}
+
 void FindAndReplaceDialog::setFindEnabled()
 {
   ui->findButton->setEnabled(ui->textToFind->text().count() > 0);
@@ -50,8 +71,11 @@ void FindAndReplaceDialog::setFindEnabled()
 
 void FindAndReplaceDialog::setReplaceEnabled()
 {
-  ui->replaceButton->setEnabled(codeEditor->textCursor().selectedText() ==
-                                ui->textToFind->text());
+  Qt::CaseSensitivity flag =
+      ui->caseCheckBox->isChecked() ? Qt::CaseSensitive : Qt::CaseInsensitive;
+  ui->replaceButton->setEnabled(
+      QString::compare(codeEditor->textCursor().selectedText(),
+                       ui->textToFind->text(), flag) == 0);
 }
 
 void FindAndReplaceDialog::actionFind(bool forReplaceAll)

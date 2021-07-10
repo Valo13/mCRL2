@@ -132,6 +132,11 @@ void MainWindow::setupMenuBar()
 
   fileMenu->addSeparator();
 
+  openGuiAction =
+      fileMenu->addAction("Open mcrl2-gui", this, SLOT(actionOpenMcrl2gui()));
+
+  fileMenu->addSeparator();
+
   exitAction = fileMenu->addAction("Exit", this, SLOT(close()),
                                    QKeySequence(Qt::CTRL + Qt::Key_Q));
 
@@ -357,17 +362,19 @@ void MainWindow::actionImportProperties()
   }
 }
 
+void MainWindow::actionOpenMcrl2gui()
+{
+  if (!QProcess::startDetached(fileSystem->toolPath("mcrl2-gui")))
+  {
+    executeInformationBox(
+        this, "mCRL2 IDE",
+        "Failed to start mcrl2-gui: could not find its executable");
+  }
+}
+
 void MainWindow::actionFindAndReplace()
 {
-  if (findAndReplaceDialog->isVisible())
-  {
-    findAndReplaceDialog->setFocus();
-    findAndReplaceDialog->activateWindow();
-  }
-  else
-  {
-    findAndReplaceDialog->show();
-  }
+  findAndReplaceDialog->resetFocus();
 }
 
 bool MainWindow::assertProjectOpened()

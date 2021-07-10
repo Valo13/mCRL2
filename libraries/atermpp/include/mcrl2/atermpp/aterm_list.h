@@ -162,7 +162,8 @@ public:
   template <class Iter, class  ATermConverter>
   explicit term_list(Iter first, Iter last, const ATermConverter& convert_to_aterm,
                      typename std::enable_if< !std::is_base_of<
-                       std::random_access_iterator_tag,
+                       std::bidirectional_iterator_tag,
+                       // std::random_access_iterator_tag,
                        typename std::iterator_traits<Iter>::iterator_category
                      >::value>::type* = nullptr):
        aterm(detail::make_list_forward<Term,Iter,ATermConverter>
@@ -354,6 +355,20 @@ operator+(const term_list<Term1>& l, const term_list<Term2>& m);
 template <typename Term>
 inline
 term_list<Term> push_back(const term_list<Term>& l, const Term& el);
+
+/// \brief Converts the given term list to a vector.
+template <typename T>
+std::vector<T> as_vector(const atermpp::term_list<T>& x)
+{
+  return std::vector<T>(x.begin(), x.end());
+}
+
+/// \brief Converts the given term list to a set.
+template <typename T>
+std::set<T> as_set(const atermpp::term_list<T>& x)
+{
+  return std::set<T>(x.begin(), x.end());
+}
 
 } // namespace atermpp
 

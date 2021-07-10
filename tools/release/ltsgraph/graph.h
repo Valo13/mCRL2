@@ -287,7 +287,11 @@ class NodeNode : public NodeWithColor
     NodeNode(const QVector3D& p, const bool is_probabilistic)
       : NodeWithColor(p), m_is_probabilistic(is_probabilistic), m_active(false)
     {
-      if (!m_is_probabilistic) // Color action states white (probabilistic states remain black)
+      if (m_is_probabilistic) // Color probabilistic states light blue
+      {
+        m_color = QVector3D(0.35f, 0.7f, 1.0f);
+      }
+      else // Color normal states white
       {
         m_color = QVector3D(1.0f, 1.0f, 1.0f);
       }
@@ -349,9 +353,8 @@ class Graph
     QVector3D m_clip_max;
 
     std::vector<NodeNode> m_nodes;                  ///< Vector containing all graph nodes.
-    std::vector<Edge> m_edges;                      ///< Vector containing all edges.
-    std::vector<std::vector<std::size_t>> m_edge_mapping; ///< Structure containing all adjacency relations between nodes.
     std::vector<Node> m_handles;                    ///< Vector containing all handles.
+    std::vector<Edge> m_edges;                      ///< Vector containing all edges.
     std::vector<LabelString> m_transitionLabels;    ///< Vector containing all transition label strings.
     std::vector<LabelNode> m_transitionLabelnodes;  ///< Vector containing all transition label nodes.
     std::vector<QString> m_stateLabels;             ///< Vector containing all state label strings.
@@ -482,9 +485,6 @@ class Graph
     NodeNode& node(std::size_t index);
     LabelNode& stateLabel(std::size_t index);
     LabelNode& transitionLabel(std::size_t edge);
-    std::size_t nrOfNeighboursOfNode(std::size_t node);
-    std::size_t edgeOfNode(std::size_t node, int index);
-    std::size_t neigbourOfNode(std::size_t node, int index);
 
     /// Getters
 

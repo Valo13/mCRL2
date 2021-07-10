@@ -17,6 +17,7 @@
 #include <utility>
 #include "mcrl2/pbes/pbes_equation_index.h"
 #include "mcrl2/pbes/srf_pbes.h"
+#include "mcrl2/utilities/execution_timer.h"
 #include "mcrl2/utilities/text_utility.h"
 #include "sylvan_obj.hpp"
 
@@ -123,6 +124,28 @@ class bdd_sylvan
     {
       return x.Compose(sigma);
     }
+
+    // Applies relation R to x
+    bdd_type relation_forward(const bdd_type& R, const bdd_type& x, const bdd_variable_set& variables, const bdd_substitution& prev_substitution, bool optimized = false) const
+    {
+      if (optimized)
+      {
+        // Note that the parameter prev_substitution is not used. This is because Sylvan makes assumptions about the variable order
+        return x.RelNext(R, variables);
+      }
+      return let(prev_substitution, exists(variables, x & R));
+    };
+
+    // Applies the inverse of the relation R to x
+    bdd_type relation_backward(const bdd_type& R, const bdd_type& x, const bdd_variable_set& next_variables, const bdd_substitution& next_substitution, bool optimized = false) const
+    {
+      if (optimized)
+      {
+        // Note that the parameter next_substitution is not used. This is because Sylvan makes assumptions about the variable order
+        return x.RelPrev(R, next_variables);
+      }
+      return exists(next_variables, let(next_substitution, x) & R);
+    };
 
     // Returns a string representing one solution
     std::string pick_one_solution(const bdd_type& x, const bdd_variable_set& variables) const
@@ -294,17 +317,18 @@ class bdd_parity_game
 
   private:
     bdd_sylvan& m_bdd;
-    bdd_variable_set m_variables;
-    bdd_variable_set m_next_variables;
-    bdd_variable_set m_all_variables;
-    bdd_substitution m_substitution;
-    bdd_substitution m_reverse_substitution;
+    const bdd_variable_set& m_variables;
+    const bdd_variable_set& m_next_variables;
+    const bdd_variable_set& m_all_variables;
+    const bdd_substitution& m_next_substitution;
+    const bdd_substitution& m_prev_substitution;
     bdd_type m_V;
     std::vector<bdd_type> m_E;
     bdd_type m_even;
     bdd_type m_odd;
     std::map<std::uint32_t, bdd_type> m_priorities;
     bdd_type m_initial_state;
+    bool m_use_sylvan_optimization;
 
     void info(const bdd_type& x, const std::string& msg, const bdd_variable_set& variables) const
     {
@@ -330,75 +354,53 @@ class bdd_parity_game
       const bdd_variable_set& variables,
       const bdd_variable_set& next_variables,
       const bdd_variable_set& all_variables,
-      const bdd_substitution& substitution,
-      const bdd_substitution& reverse_substitution,
+      const bdd_substitution& next_substitution,
+      const bdd_substitution& prev_substitution,
       const bdd_type& V,
       const std::vector<bdd_type>& E,
       const bdd_type& even_nodes,
       const bdd_type& odd_nodes,
       const std::map<std::uint32_t, bdd_type>& priorities,
-      const bdd_type& initial_state
+      const bdd_type& initial_state,
+      bool use_sylvan_optimization = false
      )
     : m_bdd(bdd),
       m_variables(variables),
       m_next_variables(next_variables),
-      m_all_variables(all_variables),
-      m_substitution(substitution),
-      m_reverse_substitution(reverse_substitution),
+      m_all_variables(all_variables), m_next_substitution(next_substitution),
+          m_prev_substitution(prev_substitution),
       m_V(V),
       m_E(E),
       m_even(even_nodes),
       m_odd(odd_nodes),
       m_priorities(priorities),
-      m_initial_state(initial_state)
-    {
-      mCRL2log(log::debug) << "|E| = " << m_E.size() << " sat count = " << m_bdd.count(m_bdd.any(m_E), all_variables) << std::endl;
-    }
+      m_initial_state(initial_state),
+      m_use_sylvan_optimization(use_sylvan_optimization)
+    {}
 
-//    // check whether U = { u in V | u in U /\ exists v in V: u --> v }
-//    bool has_successor(const bdd_type& U) const
-//    {
-//      bdd_type V_ = m_bdd.let(m_substitution, m_V);
-//      bdd_type U_next = m_bdd.let(m_substitution, U);
-//      bdd_type Z = m_bdd.quantify(U_next & m_E, m_next_variables, false) & U;
-//      return (Z == U) != 0;
-//    }
-//
-//    bdd_type successor(const bdd_type& U)
-//    {
-//      auto U_next = m_bdd.quantify(m_E & U, m_variables, false);
-//      U_next = U | m_bdd.let(m_reverse_substitution, U_next);
-//      return U_next;
-//    }
-
-    // U is a BDD representing a set of vertices
-    bdd_type predecessor(bool player, const bdd_type& U)
+    // If optimized is true, the Sylvan RelPrev operator is applied to improve efficiency
+    bdd_type predecessor(bool player, const bdd_type& U, bool optimized = false)
     {
       bdd_type V_player = (player == even) ? m_even : m_odd;
       bdd_type V_opponent = (player == odd) ? m_even : m_odd;
-      bdd_type V_ = m_bdd.let(m_substitution, m_V);
-      bdd_type U_next = m_bdd.let(m_substitution, U);
 
       std::vector<bdd_type> W_player;
       for (const auto& Ei: m_E)
       {
-        W_player.push_back(m_bdd.quantify(U_next & Ei, m_next_variables, false));
+        W_player.push_back(m_bdd.relation_backward(
+            Ei, U, m_next_variables, m_next_substitution, optimized));
       }
       bdd_type U_player = V_player & m_bdd.any(W_player);
-      // bdd_type U_player = V_player & m_bdd.quantify(U_next & m_E, m_next_variables, false);
-
-      // V_opponent /\ {v in V | forall u in V: v --> u ==> u in U } =
-      // V_opponent /\ {v in V | ~ (exists u in V: v --> u /\ u in V\U) }
 
       std::vector<bdd_type> W_opponent;
       for (const auto& Ei: m_E)
       {
-        W_opponent.push_back(m_bdd.quantify(Ei & V_ & ~U_next, m_next_variables, false));
+        W_opponent.push_back(V_opponent & ~m_bdd.relation_backward(
+                                              Ei, m_V & ~U, m_next_variables,
+                                              m_next_substitution, optimized));
       }
-      bdd_type U_opponent = V_opponent & ~m_bdd.any(W_opponent);
-      // bdd_type U_opponent = V_opponent & ~(m_bdd.quantify(m_E & V_ & ~U_next, m_next_variables, false));
+      bdd_type U_opponent = m_bdd.all(W_opponent);
 
-      // return union of the two sets
       return U_player | U_opponent;
     }
 
@@ -407,12 +409,16 @@ class bdd_parity_game
     // attractor computation is a least fixpoint computation
     bdd_type attractor(bool player, const bdd_type& A)
     {
+      mCRL2log(log::debug) << "attractor" << std::endl;
+      std::size_t count = 0;
+
       bdd_type tmp = m_bdd.false_();
       bdd_type tmp_ = A;
       while (tmp != tmp_)
       {
+        mCRL2log(log::debug) << count++ << std::endl;
         tmp = tmp_;
-        tmp_ = tmp_ | predecessor(player, tmp_);
+        tmp_ = tmp_ | predecessor(player, tmp_, m_use_sylvan_optimization);
       }
       return tmp;
     }
@@ -423,47 +429,32 @@ class bdd_parity_game
       m_V = m_V & ~A;
       m_even = m_even & ~A;
       m_odd = m_odd & ~A;
-      bdd_type A_ = m_bdd.let(m_substitution, A);
-//      m_E = m_E & ~A & ~A_;
-      bdd_type AA = ~A & ~A_;
+      bdd_type A_next = m_bdd.let(m_next_substitution, A);
+
+      //----------------------------------------------//
+      // bdd_type AA = ~A & ~A_; // N.B. this turns out to be very inefficient in some cases
+      // for (auto& Ei: m_E)
+      // {
+      //   Ei = Ei & AA;
+      // }
+      //----------------------------------------------//
+
       for (auto& Ei: m_E)
       {
-        Ei = Ei & AA;
+        Ei = Ei & ~A & ~A_next;
       }
 
       std::map<std::uint32_t, bdd_type> priorities;
       for (const auto& [i, p_i]: m_priorities)
       {
-        if ((p_i & !A) != m_bdd.false_())
+        auto priority = p_i & ~A;
+        if (priority != m_bdd.false_())
         {
-          priorities[i] = p_i & !A;
+          priorities[i] = priority;
         }
       }
       m_priorities = priorities;
-      // m_bdd.collect_garbage();
     }
-
-//    void print(bool debug = false)
-//    {
-//      std::size_t n = m_variables.size();
-//      std::cout << "Number of variables: " << n << std::endl;
-//      std::cout << "Number of edges: " << m_bdd.count(m_E, m_all_variables) << std::endl;
-//      std::cout << "Number of vertices: " << m_bdd.count(m_V, m_variables)
-//                << "(" << m_bdd.count(m_even, m_variables) << " even and "
-//                << m_bdd.count(m_odd, m_variables) << " odd)" << std::endl;
-//      if (debug)
-//      {
-//        // print all sets
-//        std::cout << " Vertices: %s " << m_bdd.pick_one_solution(m_V, m_variables) << std::endl;
-//        std::cout << " Even: %s " << m_bdd.pick_one_solution(m_even, m_variables) << std::endl;
-//        std::cout << " Odd: %s " << m_bdd.pick_one_solution(m_odd, m_variables) << std::endl;
-//        for (const auto& [i, p_i]: m_priorities)
-//        {
-//          std::cout << " Priority[" << i << "]: " << m_bdd.pick_one_solution(p_i, m_variables) << std::endl;
-//        }
-//        std::cout << " Edges: %s " << m_bdd.pick_one_solution(m_E, m_all_variables) << std::endl;
-//      }
-//    }
 
     std::size_t game_size() const
     {
@@ -502,12 +493,12 @@ class bdd_parity_game
 
     const bdd_substitution& substitution() const
     {
-      return m_substitution;
+      return m_next_substitution;
     }
 
     const bdd_substitution& reverse_substitution() const
     {
-      return m_reverse_substitution;
+      return m_prev_substitution;
     }
 
     const bdd_type& nodes() const
@@ -535,10 +526,58 @@ class bdd_parity_game
       return m_priorities;
     }
 
+    // Perform reachability, return reachable states
+    bdd_type reachable_vertices_default(const bdd_type& U)
+    {
+      bdd_type V_reachable = m_bdd.false_();
+      bdd_type V_reachable_ = U;
+      std::size_t count = 0;
+      while (V_reachable != V_reachable_)
+      {
+        V_reachable = V_reachable_;
+        mCRL2log(log::verbose) << "  reachable_states_default iteration " << count++ << std::endl;
+        for (const auto& Ei: m_E)
+        {
+          V_reachable_ = V_reachable_ | m_bdd.relation_forward(Ei, V_reachable_, m_variables, m_prev_substitution);
+        }
+      }
+      return V_reachable;
+    }
+
+    // Perform reachability, return reachable states
+    // exploit the partitioning to potentially more quickly explore the state space
+    // Not reliably quicker (or slower)
+    bdd_type reachable_vertices(const bdd_type& U)
+    {
+      bdd_type V_reachable = m_bdd.false_();
+      bdd_type V_frontier = U;
+      std::vector<bdd_type> V_next;
+      std::size_t count = 0;
+      while ( (V_reachable | V_frontier) != V_reachable) // check whether V_frontier is a subset of V_reachable
+      {
+        V_reachable = V_reachable | V_frontier;
+        mCRL2log(log::debug) << "  reachable_states iteration " << count++ << std::endl;
+        V_next.clear();
+        for (const auto& Ei: m_E)
+        {
+          V_next.push_back(m_bdd.relation_forward(Ei, V_frontier, m_variables, m_prev_substitution));
+        }
+        V_frontier = m_bdd.any(V_next);
+      }
+      return V_reachable;
+    }
+
     std::pair<bdd_type, bdd_type> zielonka()
     {
+      mCRL2log(log::debug) << "start zielonka" << std::endl;
+//      mCRL2log(log::debug) << "node_count(V) = " << m_bdd.node_count(nodes()) << " sat_count(V) = " << m_bdd.count(nodes(), m_variables) << std::endl;
+//      mCRL2log(log::debug) << "node_count(E) = " << m_bdd.node_count(m_bdd.any(edges())) << " sat_count(E) = " << m_bdd.count(m_bdd.any(edges()), m_all_variables) << std::endl;
+//      mCRL2log(log::debug) << "node_count(even) = " << m_bdd.node_count(m_even) << " sat_count(even) = " << m_bdd.count(m_even, m_all_variables) << std::endl;
+//      mCRL2log(log::debug) << "node_count(odd) = " << m_bdd.node_count(m_odd) << " sat_count(odd) = " << m_bdd.count(m_odd, m_all_variables) << std::endl;
+
       if ( (m_even | m_odd) == m_bdd.false_())
       {
+        mCRL2log(log::debug) << "finish zielonka" << std::endl;
         return { m_even, m_odd };
       }
       else
@@ -552,10 +591,12 @@ class bdd_parity_game
         auto [W0, W1] = G.zielonka();
         if (parity == even && W1 == m_bdd.false_())
         {
+          mCRL2log(log::debug) << "finish zielonka" << std::endl;
           return { W0 | A, W1 };
         }
         else if (parity == odd && W0 == m_bdd.false_())
         {
+          mCRL2log(log::debug) << "finish zielonka" << std::endl;
           return { W0, A | W1 };
         }
         else
@@ -567,10 +608,12 @@ class bdd_parity_game
           auto [X0, X1] = H.zielonka();
           if (parity == even)
           {
+            mCRL2log(log::debug) << "finish zielonka" << std::endl;
             return { X0, X1 | B };
           }
           else
           {
+            mCRL2log(log::debug) << "finish zielonka" << std::endl;
             return { X0 | B, X1 };
           }
         }
@@ -592,6 +635,23 @@ class pbesbddsolve
     bdd_sylvan m_bdd;
     bool m_unary_encoding;
     bdd_granularity m_granularity = bdd_granularity::per_pbes;
+    utilities::execution_timer* m_timer = nullptr;     // if it is non-zero, it will be used to display timing information
+
+    void start_timer(const std::string& msg) const
+    {
+      if (m_timer)
+      {
+        m_timer->start(msg);
+      }
+    }
+
+    void finish_timer(const std::string& msg) const
+    {
+      if (m_timer)
+      {
+        m_timer->finish(msg);
+      }
+    }
 
     bdd_type to_bdd(const data::variable& x) const
     {
@@ -703,10 +763,10 @@ class pbesbddsolve
       return result;
     }
 
-    std::vector<bdd_type> compute_equation_identifiers(std::size_t equation_count, const std::vector<sylvan::Bdd>& id_variables, bool unary_encoding)
+    std::vector<bdd_type> compute_nodes(std::size_t equation_count, const std::vector<bdd_type>& id_variables, bool unary_encoding)
     {
-      std::vector<sylvan::Bdd> result;
-      std::vector<std::vector<sylvan::Bdd>> sequences(equation_count, std::vector<sylvan::Bdd>());
+      std::vector<bdd_type> result;
+      std::vector<std::vector<bdd_type>> sequences(equation_count, std::vector<bdd_type>());
 
       if (unary_encoding)
       {
@@ -743,9 +803,9 @@ class pbesbddsolve
     }
 
     inline
-    std::map<std::size_t, std::vector<sylvan::Bdd>> compute_priority_map(const std::vector<bdd_type>& equation_ids) const
+    std::map<std::size_t, std::vector<bdd_type>> compute_priority_map(const std::vector<bdd_type>& equation_ids) const
     {
-      std::map<std::size_t, std::vector<sylvan::Bdd>> result;
+      std::map<std::size_t, std::vector<bdd_type>> result;
       const auto& equations = m_pbes.equations();
       for (std::size_t i = 0; i < equations.size(); i++)
       {
@@ -854,11 +914,23 @@ class pbesbddsolve
       return result;
     }
 
-    bdd_parity_game compute_parity_game()
+    std::tuple<
+        bdd_variable_set,
+        bdd_variable_set,
+        bdd_variable_set,
+        bdd_substitution,
+        bdd_substitution,
+        bdd_type,
+        std::vector<bdd_type>,
+        bdd_type,
+        bdd_type,
+        bdd_type,
+        std::map<std::uint32_t, bdd_type>
+        >
+    compute_parity_game()
     {
       // Attributes of the parity game
       bdd_variable_set variable_set;
-      std::vector<bdd_type> variable_vector;
       bdd_variable_set next_variable_set;
       bdd_variable_set all_variable_set;
       bdd_substitution substitution;
@@ -869,7 +941,6 @@ class pbesbddsolve
       bdd_type odd;
       bdd_type initial_state;
       std::map<std::uint32_t, bdd_type> priorities;
-
       const std::vector<srf_equation>& equations = m_pbes.equations();
       std::size_t N = equations.size();
 
@@ -886,7 +957,6 @@ class pbesbddsolve
         auto [bdd0, index0] = m_bdd.add_variable(v.name());
         auto [bdd1, index1] = m_bdd.add_variable(std::string(v.name()) + "_");
         variable_set.add(index0);
-        variable_vector.push_back(bdd0);
         next_variable_set.add(index1);
         id_variables.push_back(bdd0);
         all_variable_set.add(index0);
@@ -899,7 +969,6 @@ class pbesbddsolve
         auto [bdd0, index0] = m_bdd.add_variable(v.name());
         auto [bdd1, index1] = m_bdd.add_variable(std::string(v.name()) + "_");
         variable_set.add(index0);
-        variable_vector.push_back(bdd0);
         next_variable_set.add(index1);
         all_variable_set.add(index0);
         all_variable_set.add(index1);
@@ -913,33 +982,33 @@ class pbesbddsolve
       std::vector<bdd_type> iparameters_bdd_next = make_bdd_variables(iparameters_next);
       std::vector<bdd_type> parameters_bdd_next = make_bdd_variables(parameters_next);
 
-      // equation ids
-      std::vector<bdd_type> equation_ids = compute_equation_identifiers(m_pbes.equations().size(), iparameters_bdd, m_unary_encoding);
-      std::vector<bdd_type> equation_ids_next = compute_equation_identifiers(m_pbes.equations().size(), iparameters_bdd_next, m_unary_encoding);
+      // each PBES variable Xi(e) is a node of the graph
+      std::vector<bdd_type> nodes = compute_nodes(m_pbes.equations().size(), iparameters_bdd, m_unary_encoding);
+      std::vector<bdd_type> nodes_next = compute_nodes(m_pbes.equations().size(), iparameters_bdd_next, m_unary_encoding);
 
       // compute the set V of graph nodes
-      V = m_bdd.any(equation_ids);
+      V = m_bdd.any(nodes);
 
       // compute the sets of even and odd graph nodes
-      std::vector<sylvan::Bdd> even_nodes;
-      std::vector<sylvan::Bdd> odd_nodes;
+      std::vector<bdd_type> even_nodes;
+      std::vector<bdd_type> odd_nodes;
       for (std::size_t i = 0; i < N; i++)
       {
         const srf_equation& eqn = equations[i];
         if (eqn.is_conjunctive())
         {
-          odd_nodes.push_back(equation_ids[i]);
+          odd_nodes.push_back(nodes[i]);
         }
         else
         {
-          even_nodes.push_back(equation_ids[i]);
+          even_nodes.push_back(nodes[i]);
         }
         even = m_bdd.any(even_nodes);
         odd = m_bdd.any(odd_nodes);
       }
 
       //  compute the priority map
-      std::map<std::size_t, std::vector<sylvan::Bdd>> priority_ids = compute_priority_map(equation_ids);
+      std::map<std::size_t, std::vector<bdd_type>> priority_ids = compute_priority_map(nodes);
       std::size_t min_rank = m_pbes_index.rank(equations.front().variable().name());
       std::size_t max_rank = m_pbes_index.rank(equations.back().variable().name());
       // We prefer a max priority game, so the ranks need to be reversed
@@ -950,31 +1019,44 @@ class pbesbddsolve
         priorities[r] = m_bdd.any(priority_ids[rank]);
       }
 
-      E = compute_edge_relation(equations, equation_ids, equation_ids_next, parameters_bdd_next);
+      E = compute_edge_relation(equations, nodes, nodes_next, parameters_bdd_next);
 
-      initial_state = compute_initial_state(equation_ids);
+      initial_state = compute_initial_state(nodes);
 
-      return bdd_parity_game(
-        m_bdd, variable_set, next_variable_set, all_variable_set, substitution,
-           reverse_substitution, V, E, even, odd, priorities, initial_state);
+      return { variable_set, next_variable_set, all_variable_set, substitution,
+           reverse_substitution, V, E, even, odd, initial_state, priorities };
     }
 
   public:
-    pbesbddsolve(const srf_pbes& p, bdd_sylvan& bdd, bool unary_encoding = false, bdd::bdd_granularity granularity = bdd::bdd_granularity::per_pbes)
-        : m_pbes(p), m_pbes_index(m_pbes), m_bdd(bdd), m_unary_encoding(unary_encoding), m_granularity(granularity)
+    pbesbddsolve(const srf_pbes& p, bdd_sylvan& bdd, bool unary_encoding = false,
+               bdd::bdd_granularity granularity = bdd::bdd_granularity::per_pbes,
+               utilities::execution_timer* timer = nullptr)
+        : m_pbes(p), m_pbes_index(m_pbes), m_bdd(bdd), m_unary_encoding(unary_encoding), m_granularity(granularity), m_timer(timer)
     { }
 
-    bool run()
+    bool run(bool use_sylvan_optimization = true, bool remove_unreachable_vertices = true)
     {
-      bdd_variable_set variable_set;
-      std::vector<bdd_type> variable_vector;
-      bdd_variable_set next_variable_set;
-      bdd_variable_set all_variable_set;
-      bdd_substitution substitution;
-      bdd_substitution reverse_substitution;
+      mCRL2log(log::verbose) << "Computing parity game" << std::endl;
+      start_timer("compute-parity-game");
+      auto [variable_set, next_variable_set, all_variable_set, substitution,
+            reverse_substitution, V, E, even, odd, initial_state, priorities] = compute_parity_game();
+      bdd_parity_game G(m_bdd, variable_set, next_variable_set, all_variable_set, substitution,
+                            reverse_substitution, V, E, even, odd, priorities, initial_state, use_sylvan_optimization);
+      finish_timer("compute-parity-game");
+      mCRL2log(log::debug) << "bdd node count |V| = " << m_bdd.node_count(G.nodes()) << std::endl;
+      mCRL2log(log::debug) << "bdd node count |E| = " << m_bdd.node_count(m_bdd.any(G.edges())) << std::endl;
 
-      bdd_parity_game G = compute_parity_game();
+      if (remove_unreachable_vertices)
+      {
+        mCRL2log(log::verbose) << "Computing reachable vertices" << std::endl;
+        start_timer("remove-unreachable-vertices");
+        G.remove(~G.reachable_vertices(G.initial_state()));
+        finish_timer("remove-unreachable-vertices");
+      }
+      mCRL2log(log::verbose) << "Running Zielonka algorithm" << std::endl;
+      start_timer("run-zielonka-algorithm");
       auto [W0, W1] = G.zielonka();
+      finish_timer("run-zielonka-algorithm");
       return (W0 | G.initial_state()) == W0;
     }
 };

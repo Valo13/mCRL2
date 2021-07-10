@@ -28,6 +28,8 @@ class pbesbddsolve_tool : public input_output_tool
 
     bool unary_encoding = false;
     bdd::bdd_granularity granularity = bdd::bdd_granularity::per_pbes;
+    bool apply_sylvan_optimization = true;
+    bool remove_unreachable_vertices = false;
 
     // Lace options
     std::size_t lace_n_workers = 0; // autodetect
@@ -45,6 +47,8 @@ class pbesbddsolve_tool : public input_output_tool
       super::add_options(desc);
       desc.add_option("unary-encoding", utilities::make_optional_argument("NAME", "0"), "use a unary encoding of the predicate variables", 'u');
       desc.add_option("granularity", utilities::make_optional_argument("NAME", "pbes"), "the granularity of the edge relation (pbes, equation or summand)", 'g');
+      desc.add_option("no-sylvan-optimization", "disable the Sylvan optimization for applying a relation", 'o');
+      desc.add_option("remove-unreachable-vertices", "remove unreachable vertices before applying Zielonka", 'r');
       desc.add_option("lace-workers", utilities::make_optional_argument("NAME", "0"), "set number of Lace workers (threads for parallelization), (0=autodetect)");
       desc.add_option("lace-dqsize", utilities::make_optional_argument("NAME", "4194304"), "set length of Lace task queue (default 1024*1024*4)");
       desc.add_option("lace-stacksize", utilities::make_optional_argument("NAME", "0"), "set size of program stack in kilo bytes (0=default stack size)");
@@ -76,6 +80,8 @@ class pbesbddsolve_tool : public input_output_tool
       super::parse_options(parser);
       unary_encoding = parser.has_option("unary-encoding");
       granularity = parse_granularity(parser.option_argument("granularity"));
+      apply_sylvan_optimization = !parser.has_option("no-sylvan-optimization");
+      remove_unreachable_vertices = parser.has_option("remove-unreachable-vertices");
       if (parser.has_option("lace-workers"))
       {
         lace_n_workers = parser.option_argument_as<int>("lace-workers");
@@ -149,8 +155,12 @@ class pbesbddsolve_tool : public input_output_tool
       pbes_system::pbes pbesspec = pbes_system::detail::load_pbes(input_filename());
       normalize(pbesspec);
       srf_pbes p = pbes2srf(pbesspec);
+      if (remove_unreachable_vertices)
+      {
+        p.make_total();
+      }
       unify_parameters(p);
-      bool result = pbes_system::bdd::pbesbddsolve(p, sylvan, unary_encoding, granularity).run();
+      bool result = pbes_system::bdd::pbesbddsolve(p, sylvan, unary_encoding, granularity, &timer()).run(apply_sylvan_optimization, remove_unreachable_vertices);
       std::cout << (result ? "true" : "false") << std::endl;
       return true;
     }

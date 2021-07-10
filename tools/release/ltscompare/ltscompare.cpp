@@ -91,8 +91,8 @@ class ltscompare_tool : public ltscompare_base
       l1.load(tool_options.name_for_first);
       l2.load(tool_options.name_for_second);
 
-      l1.hide_actions(tool_options.tau_actions);
-      l2.hide_actions(tool_options.tau_actions);
+      l1.record_hidden_actions(tool_options.tau_actions);
+      l2.record_hidden_actions(tool_options.tau_actions);
 
       bool result = true;
       if (tool_options.equivalence != lts_eq_none)
@@ -226,7 +226,8 @@ class ltscompare_tool : public ltscompare_base
                  .add_value(lts_eq_sim)
                  .add_value(lts_eq_ready_sim)
                  .add_value(lts_eq_trace)
-                 .add_value(lts_eq_weak_trace),
+                 .add_value(lts_eq_weak_trace)
+                 .add_value(lts_eq_coupled_sim),
                  "use equivalence NAME (not allowed in combination with -p/--preorder):", 'e').
       add_option("preorder", make_enum_argument<lts_preorder>("NAME")
                  .add_value(lts_pre_none, true)
